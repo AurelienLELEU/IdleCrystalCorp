@@ -985,6 +985,10 @@ func _test_hard_reset() -> void:
 	_check(int(_game.get("prestige_points")) == 0, "reset : points d'ascension effacés")
 	_check(int(_game.get("prestige_count")) == 0, "reset : ascensions effacées")
 	_check(_game.call("get_building_count", "b1") == 0, "reset : bâtiments effacés")
+	_check(int(_game.get("buildings_total_owned")) == 0,
+		"reset : compteur dérivé de bâtiments effacé")
+	_check(int(_game.get("research_levels_total")) == 0,
+		"reset : compteur dérivé de recherches effacé")
 	_check(not _game.call("has_no_ads"), "reset : achats effacés")
 	_check(not _game.call("is_boost_active"), "reset : surcharge annulée")
 	_check((_game.get("achievements_unlocked") as Dictionary).is_empty(), "reset : succès effacés")

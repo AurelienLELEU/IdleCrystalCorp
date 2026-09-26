@@ -1082,6 +1082,12 @@ func _apply_fresh_state() -> void:
 	buildings_owned = {}
 	click_upgrades_owned = {}
 	research_levels = {}
+	# Compteurs dérivés : `_apply_save_data()` les reconstruit à la lecture,
+	# mais une remise à zéro part directement de l'état frais. Sans ces deux
+	# remises à zéro, succès, rendu visuel et autres lecteurs gardaient des achats
+	# fantômes après que leurs dictionnaires avaient été vidés.
+	buildings_total_owned = 0
+	research_levels_total = 0
 	run_earnings = BigNum.zero()
 	lifetime_earnings = BigNum.zero()
 	prestige_points = 0

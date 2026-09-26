@@ -1,6 +1,13 @@
-[gd_scene load_steps=2 format=3 uid="uid://capq2y3nvisck"]
+[gd_scene load_steps=4 format=3 uid="uid://capq2y3nvisck"]
 
 [ext_resource type="Script" uid="uid://cxy76uwjrlkhe" path="res://scenes/MainUI.gd" id="1_mainui"]
+[ext_resource type="Script" path="res://scenes/CrystalBackground.gd" id="2_crystal_background"]
+[ext_resource type="Shader" path="res://scenes/CrystalBackground.gdshader" id="3_crystal_shader"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_crystal_background"]
+shader = ExtResource("3_crystal_shader")
+shader_parameter/purchase_progress = 0.0
+shader_parameter/research_progress = 0.0
 
 [node name="MainUI" type="Control"]
 layout_mode = 3
@@ -19,7 +26,9 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.050980393, 0.043137256, 0.10196079, 1)
+color = Color(1, 1, 1, 1)
+material = SubResource("ShaderMaterial_crystal_background")
+script = ExtResource("2_crystal_background")
 
 [node name="Root" type="MarginContainer" parent="."]
 layout_mode = 1
