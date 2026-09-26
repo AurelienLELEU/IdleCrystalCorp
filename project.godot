@@ -32,7 +32,7 @@ config/version="1.0.0"
 ; un binaire livré ne peut pas afficher de vraies annonces par accident.
 application/ads_use_test_ads=true
 application/admob_app_id="ca-app-pub-3940256099942544~1458002511"
-application/admob_rewarded_unit_id="ca-app-pub-3940256099942544/5224354917"
+application/admob_rewarded_unit_id="ca-app-pub-3940256099942544/1712485313"
 
 boot_splash/bg_color=Color(0.027, 0.024, 0.059, 1)
 boot_splash/show_image=true

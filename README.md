@@ -55,7 +55,7 @@ dernier.
 
 ## Tests
 
-429 vérifications, 7 contrôles, tous en headless :
+846 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
 
 ```bash
 ./tests/run_all.sh                       # tout
@@ -67,11 +67,16 @@ python3 tests/check_native_contract.py   # le contrôle hors Godot
 |---|---|
 | `test_bignum.gd` | Mantisse/exposant, comparaisons, formatage, grands nombres |
 | `test_game.gd` | Économie, achat, sauvegarde, migration, hors-ligne, ascension, succès, boutique |
+| `test_offline_persistence.gd` | Gains en attente, autosaves, quarantaine et absence de double comptage |
+| `test_save_codec.gd` | CRC32, en-tête, versions, champs obligatoires et corruption binaire |
 | `test_ui_compile.gd` | Instanciation réelle de `Main.tscn`, intégrité des 7 pages |
-| `test_ui_interaction.gd` | Navigation, récolte, achats, popup hors-ligne, confirmation d'achat, remise à zéro |
+| `test_ui_interaction.gd` | Navigation, récolte, achats, restauration, popups, resets et unicité des toasts |
+| `test_background.gd` | Shader animé et évolution effective selon les achats |
 | `test_plugin_contract.gd` | Contrat entre le jeu et les extensions `IdleAds` / `IdleStore`, avec un faux plug-in injecté |
+| `test_ads_economy.gd` | Plafonds quotidiens, compteur partagé, fenêtres de pubs |
+| `test_native_load.gd` | Chargement réel des GDExtensions compilées, si les bibliothèques sont présentes |
 | `test_safe_area.gd` | Zone sûre, centrage, débordement, et pièges de `set_anchors_preset` |
-| `check_native_contract.py` | Cohérence des frontières C / C++ / Objective-C++ / Swift |
+| `check_native_contract.py` | Frontières C / C++ / Objective-C++ / Swift et gardes iOS critiques |
 
 `tests/run.sh` impose un délai maximal d'exécution : si un script ne compile
 pas, Godot ne quitte jamais et relance silencieusement la scène principale en
@@ -88,11 +93,11 @@ fausser le suivant.
 
 ### `check_native_contract.py`, le contrôle qui ne lance pas Godot
 
-Le code natif ne compile pas sur une machine sans Xcode. C'est précisément ce qui
-rend ce contrôle nécessaire : une extension se charge, `IdleAds` s'inscrit dans
-`ClassDB`, le jeu « fonctionne » — puis plante à la première pub parce qu'un
-paramètre est devenu `long` entre l'en-tête et le `.mm`. Aucun message d'erreur
-ne pointe vers la cause.
+Un build de stubs qui réussit ne compile pas la branche qui importe les SDK
+propriétaires. C'est précisément pourquoi ce contrôle est nécessaire : une
+extension se charge, `IdleAds` s'inscrit dans `ClassDB`, le jeu « fonctionne » —
+puis plante à la première pub parce qu'un paramètre est devenu `long` entre
+l'en-tête et le `.mm`. Aucun message d'erreur ne pointe vers la cause.
 
 Le script compare les **deux sens** de chaque frontière :
 
@@ -111,7 +116,9 @@ paramètres ne le voit pas. Les différences d'écriture sont normalisées
 `UnsafePointer<CChar>?` de Swift aussi), sinon le script signalerait des
 divergences là où il n'y en a pas — et l'on apprendrait à ignorer ses alertes.
 
-Aucune dépendance : uniquement la bibliothèque standard de Python.
+Aucune dépendance : uniquement la bibliothèque standard de Python. Les 130
+vérifications courantes comprennent aussi des contrats runtime de la branche
+iOS, mutés exprès un par un pour prouver que chaque contrôle échoue.
 
 ---
 
@@ -132,7 +139,8 @@ core_engine/             aucune référence à l'interface
   UITheme.gd             palette, StyleBox, helpers de mise en page
 scenes/
   Main.tscn              scène racine
-  MainUI.gd              toute l'interface, construite en code (1 038 lignes)
+  MainUI.gd              toute l'interface, construite en code (1 254 lignes)
+  CrystalBackground.*    shader animé, progression liée aux achats
   ui/Toast.gd            notifications éphémères
   ui/Modal.gd            fenêtres modales
   ui/FloatingNumber.gd   nombres flottants à la récolte
@@ -365,12 +373,18 @@ parce que chacun se camoufle en succès :
 | archive Swift en arm64 seule | godot-cpp produit un macOS « universal » : il faut compiler par tranche puis `lipo` |
 | `libswiftCompatibility56` introuvable | le runtime est dans le **toolchain**, pas dans le SDK |
 
-`tests/check_native_contract.py` vérifie désormais, sans rien compiler, que
-chaque chemin du manifeste suit la règle de suffixe de godot-cpp recopiée
-depuis `tools/godotcpp.py`, et que la liste d'interface de
-`test_native_load.gd` n'a pas dérivé des `.cpp`. Les deux contrôles ont été
-testés **négativement** : chacun a été cassé exprès pour vérifier qu'il
-échouait.
+`tests/check_native_contract.py` vérifie désormais, sans rien compiler, les
+frontières C/Swift/Objective-C++, les chemins du manifeste, la liste d'interface
+de `test_native_load.gd` et les gardes runtime iOS. Parmi ces dernières : unité
+de test iOS, récompense seulement après `userDidEarnReward`, retour d'erreur au
+SDK pas prêt, timeout, durée de vie des pointeurs C et récupération des droits
+StoreKit. Chaque garde nouvelle a été testée **négativement** par mutation.
+
+Le build local `NO_SDK=1` ne compile que les stubs AdMob : le chemin qui importe
+`GoogleMobileAds.framework` n'a pas pu être compilé ici, car le SDK n'est pas
+fourni. Les appels et noms d'API ci-dessus ont été recoupés avec la référence
+Google actuelle; un build iOS final avec le SDK reste obligatoire avant
+publication.
 
 ### Le mode test
 
@@ -380,7 +394,8 @@ niveaux.
 | Où | Quoi |
 |---|---|
 | `project.godot` | `application/admob_app_id` et `application/admob_rewarded_unit_id` contiennent **les identifiants de test publics de Google** |
-| `application/ads_use_test_ads` | force `requestConfiguration.testDeviceIdentifiers = [Simulator]` |
+| `idle_ads_ios.mm` | en debug, force aussi l'unité officielle **Rewarded iOS** (suffixe `1712485313`), même si un ID de production est configuré |
+| `application/ads_use_test_ads` | déclare le simulateur iOS comme appareil de test |
 | `GameManager._configure_services()` | force `false` dans une build **release**, quoi que dise le fichier |
 
 Le troisième niveau est le filet de sécurité : un binaire livré ne peut pas
@@ -392,10 +407,11 @@ vôtres. Rien d'autre ne change.
 
 ### Le contrat, en une phrase
 
-`rewarded_completed` n'est émis **qu'à la fin réelle de la vidéo**. L'émettre au
-démarrage crédite un joueur qui a quitté l'application, et c'est la première
-cause de désinstallation sur ce type de jeu — le code GDScript ne peut pas
-détecter ce cas, il se joue dans `idle_ads_ios.mm`.
+`rewarded_completed` n'est émis **qu'après** le callback `userDidEarnReward` de
+Google, puis la fermeture de la vidéo. La fermeture seule ne prouve pas que le
+joueur a gagné la récompense; le callback de chargement a aussi un timeout de 15
+secondes et chaque refus remonte à `AdService` au lieu de laisser `_busy` bloqué.
+Ces règles se jouent dans `idle_ads_ios.mm`, pas en GDScript.
 
 `tests/test_plugin_contract.gd` vérifie que seule la fin de vidéo crédite, avec
 un faux plug-in qui reproduit l'interface exacte de `idle_ads.h`.
@@ -447,15 +463,23 @@ iOS 15 minimum — c'est la version qui a introduit StoreKit 2.
 3. **Une annulation n'est pas une erreur.** Message neutre, jamais un « échec »
    en rouge qui suggère un bug.
 4. **Le prix affiché vient de StoreKit**, jamais du JSON. `get_display_price()`
-   fait la bascule. Un prix codé en dur est soit faux dans 150 devises, soit un
+   fait la bascule. Si StoreKit n'a pas encore renvoyé de prix, le bouton reste
+   désactivé jusqu'au signal `products_loaded`; le prix du JSON ne sert qu'en
+   simulation. Un prix codé en dur est soit faux dans 150 devises, soit un
    motif de refus de la revue.
 
 ### Le piège de l'état local
 
-`is_purchased()` interroge **aussi** le SDK, et pas seulement l'état local. Un
-joueur qui réinitialise sa partie et qui doit racheter ce qu'il a déjà payé, c'est
-le bug le plus coûteux d'un jeu à achats. Le test
-`_test_store_entitlement_survives_hard_reset()` verrouille ce comportement.
+`Transaction.currentEntitlements` remplit le cache au démarrage, avant le signal
+qui rafraîchit la boutique; `is_purchased()` interroge ensuite cet état local.
+La restauration manuelle compte tous les droits actifs, pas seulement ceux qui
+n'étaient pas encore dans le cache. Un joueur qui réinitialise sa partie et qui
+doit racheter ce qu'il a déjà payé, c'est le bug le plus coûteux d'un jeu à
+achats. Le test `_test_store_entitlement_survives_hard_reset()` verrouille la
+remise à zéro; les contrôles natifs verrouillent aussi le chargement au
+démarrage. En mode StoreKit réel, `AdService` refuse aussi d'afficher une pub
+tant que ce chargement n'a pas répondu : un acheteur « Supprimer les pubs » ne
+voit pas de pub pendant la fenêtre de réinstallation.
 
 ### Les identifiants
 
@@ -710,46 +734,72 @@ le moindre `queue_free()` libère une scène encore utilisée ailleurs.
 
 Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
 
-1. **Installer Xcode complet**, puis `brew install scons`, puis compiler les deux
-   extensions : `native/ads/build.sh` et `native/store/build.sh` (§ 5, § 6).
-   C'est la seule étape qui n'a **jamais été exécutée** : la machine de
-   développement n'avait que les `CommandLineTools`, pas de SDK iOS, pas de
-   `scons` et pas de `godot-cpp`. Tout le code natif de ce dépôt est relu et
-   vérifié par `check_native_contract.py`, mais **jamais compilé**. La première
-   compilation sera donc la première fois qu'un compilateur verra ces
-   fichiers — et relire le script ne remplace pas cette étape.
-2. **Créer les produits réels** dans App Store Connect avec les identifiants
-   exacts du tableau (§ 6).
-3. **Remplacer les identifiants AdMob de test** par les vôtres dans
-   `project.godot`, et vérifier que `ads_use_test_ads=false`.
-4. **Remplacer le bundle identifier** `com.aurelien.idlegame` par le vôtre, dans
-   `project.godot` **et** dans chaque `product_id` de `game_config.json`.
-5. **Renseigner l'équipe de signature** dans `export_presets.cfg`.
-6. **Écrire le plug-in `IdleNotifications`** si vous voulez des notifications
-   système réelles (§ 7).
-7. Remplacer `Auteur du projet` dans `LICENSE`.
-8. Vérifier le nom et le logo — « Idle Crystal Corp » est très probablement
-   déjà pris, et ce modèle n'a fait aucune recherche d'antériorité.
-9. Relancer `python3 tools/make_assets.py` si vous changez la palette.
+1. **Brancher Google Mobile Ads réel.** `native/ads/build.sh` a été exécuté sur
+   macOS et iOS en `NO_SDK=1`; ces builds vérifient les stubs, pas
+   `GoogleMobileAds.framework`. Installer le SDK et recompiler sans `NO_SDK`
+   (`ADS_SDK=/chemin/vers/GoogleMobileAds native/ads/build.sh ios`). L'identifiant
+   d'application et l'unité Rewarded iOS réels restent à fournir dans
+   `project.godot`. Le code debug force l'unité de test iOS; valider les pubs
+   réelles ensuite sur un appareil de test AdMob.
+2. **Finaliser App Store Connect** : créer les sept produits avec les IDs exacts
+   du tableau (§ 6), définir leurs prix, accepter les accords de vente et
+   vérifier les transactions/restaurations avec un compte Sandbox.
+3. **Remplacer le bundle identifier** `com.aurelien.idlegame` par le vôtre, dans
+   `project.godot` et dans chaque `product_id` de `game_config.json`; vérifier
+   aussi l'identifiant d'application AdMob qui doit correspondre à l'`Info.plist`.
+4. **Renseigner l'équipe de signature**, les certificats et le profil de
+   provisionnement dans `export_presets.cfg`; exporter, ouvrir l'archive Xcode,
+   signer et valider l'IPA.
+5. **Vérifier confidentialité et conformité** : politique de confidentialité,
+   déclaration des données dans App Store Connect, consentement publicitaire
+   (UMP/ATT selon les régions et les usages retenus) et texte des fiches de
+   boutique. Le projet ne contient pas actuellement d'intégration UMP/ATT.
+6. **Écrire `IdleNotifications`** si les notifications système réelles sont
+   voulues (§ 7). Le code actuel ne programme que des rappels internes au jeu.
+7. **Game Center n'est pas implémenté.** Décider de l'exclure du produit ou
+   ajouter l'extension, les succès/classements, les capacités Apple et les tests
+   sur appareil avant de le mentionner dans la fiche.
+8. Remplacer `Auteur du projet` dans `LICENSE` et vérifier la propriété du nom,
+   du logo et des illustrations — aucune recherche d'antériorité n'a été faite.
+9. Préparer les icônes, captures d'écran et textes localisés des fiches App
+   Store; vérifier le nom, la classification d'âge et les URLs de support.
+10. Tester sur au moins un iPhone réel : achats Sandbox, restauration après
+    réinstallation, pubs test, retour après absence, zones sûres, rotation,
+    pause/reprise et export final.
+11. Relancer `python3 tools/make_assets.py` seulement si vous changez la palette
+    ou les assets générés.
+
+### Ce qui a réellement été compilé ici
+
+- `native/ads/build.sh macos` et `native/ads/build.sh ios` avec `NO_SDK=1` :
+  stubs AdMob macOS, appareil iOS et simulateur iOS.
+- `native/store/build.sh macos` et `native/store/build.sh ios` : le pont C++ et
+  le Swift StoreKit, pour macOS, appareil iOS et simulateur iOS.
+- Les extensions macOS ont été chargées par Godot (`test_native_load.gd`).
+- **Non vérifié** : la branche iOS qui importe Google Mobile Ads, l'affichage
+  réel d'une annonce, StoreKit contre les produits de votre compte, la signature
+  IPA et la soumission Apple. Il faut le SDK, les IDs et les comptes réels.
 
 ### Le contrôle final, avant d'envoyer à Apple
 
 ```bash
-./tests/run_all.sh                 # 429 vérifications, 0 échec attendu
+./tests/run_all.sh                 # 846 vérifications, 0 échec attendu
 zsh tools/fix_info_plist.sh        # à exécuter APRÈS chaque export
 ```
 
-Et pour le natif, puisque c'est la partie réellement compilée :
+Builds sans AdMob (stubs) et StoreKit réel :
 
 ```bash
-native/ads/build.sh    target=ios_simulator   # compile sans signer
-native/store/build.sh  target=ios_simulator
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+NO_SDK=1 native/ads/build.sh ios
+native/store/build.sh ios
 python3 tests/check_native_contract.py
 ```
 
-`target=ios_simulator` n'exige ni certificat ni profil de provisionnement, et
-c'est le moyen de savoir si le code compile *avant* d'y passer une
-demi-journée.
+Les cibles s'appellent `ios` (appareil et simulateur sont construits ensemble);
+`target=ios_simulator` n'est pas un argument valide de ces scripts. Le build
+AdMob de production nécessite en plus son framework et doit être fait sans
+`NO_SDK=1`.
 
 `fix_info_plist.sh` n'est pas optionnel : Godot 4.7 inscrit dans l'`Info.plist`
 exporté dix clés d'autorisation iOS inutiles (caméra, micro, photothèque…) avec

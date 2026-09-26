@@ -125,6 +125,7 @@ func _connect_signals() -> void:
 	Store.purchase_requested.connect(_show_purchase_confirm)
 	Store.purchase_completed.connect(_on_purchase_completed)
 	Store.purchase_failed.connect(_on_purchase_failed)
+	Store.products_loaded.connect(_on_store_products_loaded)
 	Ads.ad_completed.connect(_on_ad_completed)
 	Ads.ad_failed.connect(_on_ad_failed)
 
@@ -1071,6 +1072,13 @@ func _on_purchase_failed(_product_id: String, reason: String) -> void:
 	if reason == "rien à restaurer":
 		return
 	Toast.push(_toast_layer, "Achat impossible : %s" % reason, "error")
+
+
+func _on_store_products_loaded(_count: int) -> void:
+	# Les prix localisés n'existent qu'après le retour asynchrone de StoreKit. La
+	# boutique est donc désactivée jusque-là, puis rafraîchie pour rendre les
+	# produits achetables avec leur vrai prix — jamais celui du JSON.
+	_refresh_page(PAGE_STORE)
 
 
 # ========================================================================== pubs

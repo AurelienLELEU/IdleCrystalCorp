@@ -305,6 +305,8 @@ func _test_store_confirmation() -> void:
 	if store == null:
 		_check(false, "boutique : autoload Store présent")
 		return
+	_check(store.products_loaded.is_connected(Callable(_ui, "_on_store_products_loaded")),
+		"boutique : l'interface rafraîchit les prix après le chargement asynchrone")
 	# Garde sur la méthode AVANT de l'appeler. Un `call()` sur une méthode
 	# inexistante ne lève rien en GDScript : la suite perdait les quatre
 	# vérifications suivantes et annonçait quand même « 0 échec ». C'est le

@@ -480,6 +480,104 @@ def check_load_test_list(rep: Report) -> None:
                   f"en trop {sorted(want_s - signals)} / en manque {sorted(signals - want_s)}")
 
 
+def _without_comments(source: str) -> str:
+    """Retire les commentaires pour qu'un commentaire explicatif ne passe pas."""
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"//[^\n]*", "", source)
+
+
+def check_native_runtime_safety(rep: Report) -> None:
+    """Contrats runtime que l'édition de liens ne peut pas vérifier.
+
+    Le build local utilise `NO_SDK=1` : il compile volontairement les stubs et
+    n'analyse jamais la branche GMA/StoreKit réelle. Ces contrôles verrouillent
+    donc les invariants critiques du code iOS, sans prétendre remplacer un build
+    contre les SDK propriétaires.
+    """
+    ads = _without_comments(read("native/ads/ios/idle_ads_ios.mm"))
+    store_cpp = _without_comments(read("native/store/src/idle_store.cpp"))
+    store_h = _without_comments(read("native/store/src/idle_store.h"))
+    store_swift = _without_comments(read("native/store/ios/idle_store_ios.swift"))
+    store_service = _without_comments(read("core_engine/StoreService.gd"))
+    project = _without_comments(read("project.godot"))
+    store_start = store_swift.split("public func idle_store_ios_start", 1)[1].split(
+        '@_cdecl("idle_store_ios_purchase")', 1)[0]
+    store_restore = store_swift.split("public func idle_store_ios_restore", 1)[1].split(
+        '@_cdecl("idle_store_ios_is_purchased")', 1)[0]
+
+    rep.check('kAdMobSampleRewardedUnit = @"ca-app-pub-3940256099942544/1712485313"' in ads,
+              "AdMob iOS : l'unité de test est le format Rewarded iOS",
+              "5224354917 est l'unité de test Android")
+    rep.check('application/admob_rewarded_unit_id="ca-app-pub-3940256099942544/1712485313"' in project,
+              "project.godot : l'identifiant Rewarded de test est bien celui d'iOS",
+              "le projet déclarait encore l'identifiant Android 5224354917")
+    rep.check(bool(re.search(
+        r"s_rewarded_unit\s*=\s*\(p_debug\s*\|\|\s*unit\.length\s*==\s*0\)\s*\?\s*kAdMobSampleRewardedUnit\s*:\s*unit",
+        ads)),
+        "AdMob : debug force l'unité de test, même avec un identifiant configuré",
+        "le seul device de test déclaré est Simulator; un iPhone physique recevrait des pubs réelles")
+    rep.check("status.adapterStatusesByClassName" in ads
+              and "GADAdapterInitializationStateReady" in ads
+              and "status.adErrors" not in ads,
+              "AdMob : l'initialisation lit l'API GADInitializationStatus réelle",
+              "GADInitializationStatus n'expose pas adErrors")
+    rep.check('if (!s_ads_ready) {' in ads
+              and 'idle_ads_bridge_failed([reward UTF8String], "SDK AdMob pas prêt");' in ads,
+              "AdMob : SDK non prêt renvoie un échec au jeu",
+              "un simple return laisserait Ads._busy vrai pour toujours")
+    rep.check('if (s_loading || s_pending_reward_id != nil) {' in ads
+              and 'idle_ads_bridge_failed([reward UTF8String], "une publicité est déjà en cours");' in ads,
+              "AdMob : demande concurrente refusée explicitement",
+              "un retour silencieux bloque le bouton de pub dans AdService")
+    rep.check("userDidEarnRewardHandler:" in ads and "s_reward_earned = YES" in ads,
+              "AdMob : la preuve de récompense vient du callback dédié",
+              "la fermeture de la vidéo seule ne prouve pas que la récompense est due")
+    rep.check(bool(re.search(r"if\s*\(earned\s*\)\s*\{\s*idle_ads_bridge_completed",
+                             ads, re.DOTALL)),
+              "AdMob : rewarded_completed est conditionné à la récompense réellement acquise",
+              "adDidDismissFullScreenContent seul ne doit jamais créditer")
+    rep.check("dispatch_after" in ads and "request_generation != s_load_generation" in ads
+              and "request.timeout" not in ads,
+              "AdMob : le chargement a un timeout valable et ignore les callbacks tardifs",
+              "GADRequest n'expose pas de propriété timeout")
+    rep.check("canPresentFromRootViewController" in ads and "presenter == nil" in ads,
+              "AdMob : l'absence de contrôleur présentable est traitée avant present()",
+              "présenter depuis nil peut laisser la récompense bloquée")
+    rep.check("[reward UTF8String]" in ads and ".utf8().get_data()" not in ads,
+              "Objective-C++ : les NSString traversent la frontière avec UTF8String",
+              "NSString n'a pas la méthode Godot String utf8().get_data()")
+
+    rep.check("UnsafeMutablePointer<CChar>.allocate(capacity: 512)" in store_swift
+              and "return UnsafePointer(s_price_buffer)" in store_swift
+              and "withUnsafeBufferPointer" not in store_swift,
+              "StoreKit : le pointeur du prix reste valide après le retour Swift",
+              "un pointeur obtenu dans withUnsafeBufferPointer expire à la fin de la closure")
+    rep.check("~IdleStore();" in store_h
+              and "IdleStore::~IdleStore()" in store_cpp
+              and "s_store = nullptr" in store_cpp,
+              "IdleStore : le pont statique est invalidé à la destruction",
+              "une tâche StoreKit tardive ne doit pas déréférencer un Object libéré")
+    rep.check("configured = idle_store_ios_start" in store_cpp,
+              "IdleStore : is_configured reflète le démarrage effectif du pont",
+              "configured restait toujours false")
+    rep.check("Task { @MainActor in" in store_start
+              and "Transaction.currentEntitlements" in store_start
+              and "s_entitlements.insert(transaction.productID)" in store_start
+              and store_start.index("Transaction.currentEntitlements")
+                  < store_start.index("bridge_products_loaded(products.count)"),
+              "StoreKit : les droits existants sont chargés avant l'état catalogue prêt",
+              "Transaction.updates ne recharge pas à lui seul les droits existants au démarrage")
+    rep.check("active_entitlements += 1" in store_restore
+              and "bridge_restored(active_entitlements)" in store_restore
+              and "if !s_entitlements.contains" not in store_restore,
+              "StoreKit : restauration compte tous les droits actifs, pas seulement les nouveaux",
+              "après le chargement au démarrage, compter seulement les droits nouveaux disait « aucun »")
+    rep.check('reason.begins_with("paiement en attente")' in store_service
+              and 'GameManager.notify(reason, "info")' in store_service,
+              "StoreKit : un achat pending est informatif, pas un toast d'échec",
+              "StoreKit peut confirmer ce paiement plus tard via Transaction.updates")
+
+
 def main() -> int:
     rep = Report()
     check_ads(rep)
@@ -487,6 +585,7 @@ def main() -> int:
     check_manifest(rep, "ads", "idle_ads")
     check_manifest(rep, "store", "idle_store")
     check_load_test_list(rep)
+    check_native_runtime_safety(rep)
 
     print(f"== Contrat natif : {rep.checks} vérifications, {len(rep.errors)} échecs ==")
     for error in rep.errors:

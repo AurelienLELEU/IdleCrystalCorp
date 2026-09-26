@@ -83,6 +83,7 @@ func _run() -> void:
 	_test_ads_failure_credits_nothing()
 	_test_ads_daily_cap_survives_plugin()
 	_test_ads_never_runs_while_no_ads_purchased()
+	_test_ads_wait_for_store_entitlements()
 	_test_store_delegates_to_plugin()
 	_test_store_maps_native_ids_back()
 	_test_ui_cannot_bypass_the_confirmation()
@@ -246,6 +247,33 @@ func _test_ads_never_runs_while_no_ads_purchased() -> void:
 	_ads.set("_plugin", _ads_backup)
 
 
+## Après réinstallation, StoreKit doit répondre avant qu'une pub soit proposée :
+## le cache local peut être absent alors que le joueur a bien payé no-ads. Cette
+## fenêtre est asynchrone, donc le test simule l'attente et la réponse par le vrai
+## signal `products_loaded` du faux plug-in.
+func _test_ads_wait_for_store_entitlements() -> void:
+	var plugin := FakeStore.new()
+	_store.set("_plugin", plugin)
+	_store.set("mock", false)
+	_store.set("_catalog_loaded", false)
+	_store.set("_entitlements_ready", false)
+	_store.call("_connect_plugin")
+	_ads.set("enabled", true)
+	_ads.set("_busy", false)
+	_ads.set("_daily_counts", {})
+
+	_check("les pubs restent fermées tant que StoreKit n'a pas vérifié les droits",
+		not _ads.is_available("production_boost"))
+	plugin.products_loaded.emit(7)
+	_check("la réconciliation des droits ouvre les pubs après le catalogue",
+		bool(_store.call("are_entitlements_ready"))
+			and _ads.is_available("production_boost"))
+
+	_store.set("mock", true)
+	_store.set("_plugin", _store_backup)
+	_ads.set("mock", true)
+
+
 # ========================================================== IdleStore
 
 class FakeStore:
@@ -282,8 +310,18 @@ class FakeStore:
 		return str(prices.get(product_id, ""))
 
 
+class StoreWithoutPurchase:
+	extends RefCounted
+
+	# Donne un prix pour que le test atteigne la méthode qu'il veut vérifier
+	# (purchase), au lieu de s'arrêter plus tôt sur la nouvelle garde du prix.
+	func get_price(_product_id: String) -> String:
+		return "3,99 €"
+
+
 func _test_store_delegates_to_plugin() -> void:
 	var plugin := FakeStore.new()
+	plugin.prices["com.aurelien.idlegame.noads"] = "3,99 €"
 	_store.set("_plugin", plugin)
 	_store.set("mock", false)
 
@@ -379,6 +417,23 @@ func _test_store_maps_native_ids_back() -> void:
 	_check("un échec est retraduit et propagé", failed == [["pack_cristaux_1", "achat annulé"]],
 		"-> %s" % [failed])
 
+	# Un paiement pending n'est pas un échec : l'App Store peut le valider plus
+	# tard via Transaction.updates. Le réduire à purchase_failed affichait un
+	# toast rouge « Achat impossible » alors que le paiement était en cours.
+	var game: Variant = root.get_node_or_null("GameManager")
+	var messages: Array = []
+	var on_message := func(text: String, kind: String) -> void:
+		messages.append([text, kind])
+	game.message.connect(on_message)
+	plugin.purchase_failed.emit(
+		"com.aurelien.idlegame.pack.t1",
+		"paiement en attente de validation par l'App Store")
+	game.message.disconnect(on_message)
+	_check("un paiement pending est neutre et n'est pas propagé comme un échec",
+		failed == [["pack_cristaux_1", "achat annulé"]]
+			and messages == [["paiement en attente de validation par l'App Store", "info"]],
+		"-> échecs %s / messages %s" % [failed, messages])
+
 	_store.set("mock", true)
 	_store.set("_plugin", _store_backup)
 
@@ -442,12 +497,23 @@ func _test_store_prices_come_from_the_sdk() -> void:
 	plugin.prices["com.aurelien.idlegame.noads"] = "3,99 €"
 	plugin.prices["com.aurelien.idlegame.pack.t1"] = "1,29 $"
 	_store.set("_plugin", plugin)
+	_store.set("mock", false)
 
 	_check("le prix affiché vient de l'App Store",
 		_store.get_display_price("supprimer_pubs") == "3,99 €",
 		"-> %s" % _store.get_display_price("supprimer_pubs"))
 	_check("une autre devise est respectée telle quelle",
 		_store.get_display_price("pack_cristaux_1") == "1,29 $")
+	_check("sans prix StoreKit, aucun prix du JSON n'est affiché et l'achat est bloqué",
+		_store.get_display_price("pack_cristaux_2").is_empty()
+			and not _store.can_purchase("pack_cristaux_2"))
+	plugin.prices["com.aurelien.idlegame.pack.t2"] = "2,49 €"
+	_check("le produit devient achetable dès que StoreKit fournit son prix",
+		_store.get_display_price("pack_cristaux_2") == "2,49 €"
+			and _store.can_purchase("pack_cristaux_2"))
+
+	_store.set("_plugin", null)
+	_store.set("mock", true)
 	_check("sans SDK, le catalogue de simulation prend le relais",
 		_store.get_display_price("supprimer_pubs") == str(
 			_store.get_product("supprimer_pubs").get("price", "")))
@@ -458,7 +524,7 @@ func _test_store_prices_come_from_the_sdk() -> void:
 ## Un plug-in compilé à moitié (ou une version plus ancienne) ne doit pas
 ## laisser le jeu dans un état muet : l'échec doit être explicite.
 func _test_missing_plugin_methods_are_reported() -> void:
-	var partial := RefCounted.new()
+	var partial := StoreWithoutPurchase.new()
 	# Les tests précédents ont accordé ce droit : sans l'oublier,
 	# can_purchase() renverrait false et l'échec viendrait d'ailleurs.
 	_store.set("_owned", {})

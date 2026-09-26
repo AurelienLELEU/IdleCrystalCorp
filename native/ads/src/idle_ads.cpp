@@ -56,6 +56,15 @@ IdleAds::IdleAds() {
 	godot::detail::s_ads = this;
 }
 
+IdleAds::~IdleAds() {
+	// Un rappel asynchrone du SDK peut arriver après la destruction de l'objet.
+	// Le pont C vérifie le pointeur avant d'émettre un signal; le laisser pendant
+	// vers un Object libéré transformait un retour tardif en use-after-free.
+	if (godot::detail::s_ads == this) {
+		godot::detail::s_ads = nullptr;
+	}
+}
+
 bool IdleAds::is_configured() const {
 	return configured;
 }

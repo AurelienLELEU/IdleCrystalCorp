@@ -153,6 +153,13 @@ func get_daily_count(reward_id: String) -> int:
 func is_available(reward_id: String) -> bool:
 	if not enabled or _busy:
 		return false
+	# StoreKit charge les droits existants de façon asynchrone. Échouer fermé
+	# pendant cette fenêtre évite qu'un acheteur « Supprimer les pubs » voie une
+	# annonce à la réinstallation, avant que GameManager ne récupère son droit.
+	var store: Variant = get_node_or_null("/root/Store")
+	if store != null and store.has_method("are_entitlements_ready") \
+			and not bool(store.call("are_entitlements_ready")):
+		return false
 	var game: Variant = _game()
 	if game != null and bool(game.call("has_no_ads")):
 		return false

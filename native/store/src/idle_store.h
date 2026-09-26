@@ -45,6 +45,7 @@ protected:
 
 public:
 	IdleStore();
+	~IdleStore();
 
 	bool is_configured() const;
 	void set_configured(bool p_value) { configured = p_value; }

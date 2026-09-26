@@ -33,9 +33,11 @@ import StoreKit
 private var s_entitlements: Set<String> = []
 private var s_prices: [String: String] = [:]
 private var s_started = false
-/// Tampon de retour pour idle_store_ios_price : strdup() fuirait à chaque appel,
-/// et l'interface ne lit le prix qu'une fois par ouverture de la boutique.
-private var s_price_buffer = [CChar](repeating: 0, count: 512)
+/// Tampon stable de retour pour idle_store_ios_price. Le pointeur d'un Array
+/// obtenu dans `withUnsafeBufferPointer` n'est valide que DANS sa closure : le
+/// retourner à C++ était un use-after-scope. Cette allocation globale vit aussi
+/// longtemps que la GDExtension; C++ copie le texte immédiatement au retour.
+private let s_price_buffer = UnsafeMutablePointer<CChar>.allocate(capacity: 512)
 
 // --- Traduction des erreurs ----------------------------------------------
 
@@ -69,9 +71,11 @@ private func describe(_ error: Error) -> String {
 
 private func copy(_ text: String) -> UnsafePointer<CChar>? {
     let bytes = Array(text.utf8CString)
-    guard bytes.count <= s_price_buffer.count else { return nil }
-    s_price_buffer.replaceSubrange(0 ..< bytes.count, with: bytes)
-    return s_price_buffer.withUnsafeBufferPointer { $0.baseAddress }
+    guard bytes.count <= 512 else { return nil }
+    for index in bytes.indices {
+        s_price_buffer[index] = bytes[index]
+    }
+    return UnsafePointer(s_price_buffer)
 }
 
 // --- Écoute des transactions ---------------------------------------------
@@ -123,13 +127,25 @@ public func idle_store_ios_start(_ p_product_ids_csv: UnsafePointer<CChar>?) -> 
 
     // Chargement asynchrone : le jeu reçoit le compte exact par
     // idle_store_bridge_products_loaded, et les prix par la suite.
-    Task {
+    Task { @MainActor in
         do {
             let products = try await Product.products(for: ids)
             for product in products {
                 // displayPrice respecte la devise et le formatage de la région :
                 // c'est cette chaîne qu'il faut afficher, pas un prix codé en dur.
                 s_prices[product.id] = product.displayPrice
+            }
+
+            // `Transaction.updates` ne remplace pas la lecture de l'état déjà
+            // possédé : au lancement suivant, StoreKit ne renvoie pas
+            // nécessairement les anciennes transactions dans ce flux. Charger
+            // les droits AVANT `products_loaded` garantit que
+            // StoreService.refresh_entitlements() voit `is_purchased == true`
+            // dès le premier affichage, sans obliger le joueur à restaurer à
+            // chaque démarrage.
+            for await result in Transaction.currentEntitlements {
+                guard let transaction = try? verified(result) else { continue }
+                s_entitlements.insert(transaction.productID)
             }
             bridge_products_loaded(products.count)
         } catch {
@@ -185,21 +201,23 @@ public func idle_store_ios_purchase(_ p_product_id: UnsafePointer<CChar>?) {
 
 @_cdecl("idle_store_ios_restore")
 public func idle_store_ios_restore() {
-    Task {
+    Task { @MainActor in
         do {
             // sync() interroge le serveur plutôt que de lire les transactions
             // locales : il retrouve donc aussi les achats faits sur un autre
             // appareil.
             try await AppStore.sync()
-            var fresh = 0
+            var active_entitlements = 0
             for await result in Transaction.currentEntitlements {
                 guard let transaction = try? verified(result) else { continue }
-                if !s_entitlements.contains(transaction.productID) {
-                    s_entitlements.insert(transaction.productID)
-                    fresh += 1
-                }
+                s_entitlements.insert(transaction.productID)
+                // Renvoyer le nombre de droits actifs, pas le nombre de droits
+                // nouvellement découverts dans CE processus. Comme le cache est
+                // chargé au démarrage, compter seulement les nouveaux éléments
+                // annonçait « rien à restaurer » à presque chaque réinstallation.
+                active_entitlements += 1
             }
-            bridge_restored(fresh)
+            bridge_restored(active_entitlements)
         } catch {
             // -1 distingue « rien à restaurer » d'une erreur réseau.
             bridge_restored(-1)

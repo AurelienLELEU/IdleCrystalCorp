@@ -92,12 +92,22 @@ IdleStore::IdleStore() {
 	godot::detail::s_store = this;
 }
 
+IdleStore::~IdleStore() {
+	// Les tâches StoreKit vivent potentiellement plus longtemps que le nœud qui
+	// a démarré le SDK. Les passerelles ignorent leurs rappels si l'objet est
+	// détruit; sans cela, le pointeur statique resterait pendant.
+	if (godot::detail::s_store == this) {
+		godot::detail::s_store = nullptr;
+	}
+}
+
 bool IdleStore::is_configured() const {
 	return configured;
 }
 
 void IdleStore::start(const String &p_product_ids_csv) {
-	if (idle_store_ios_start(p_product_ids_csv.utf8().get_data()) == 0) {
+	configured = idle_store_ios_start(p_product_ids_csv.utf8().get_data()) != 0;
+	if (!configured) {
 		emit_signal("purchase_failed", String(""), String("catalogue non chargé"));
 	}
 }

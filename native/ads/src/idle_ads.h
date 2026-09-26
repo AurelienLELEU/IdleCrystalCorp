@@ -40,6 +40,7 @@ protected:
 
 public:
 	IdleAds();
+	~IdleAds();
 
 	bool is_configured() const;
 	void configure(const String &p_app_id, const String &p_rewarded_unit_id, bool p_debug);

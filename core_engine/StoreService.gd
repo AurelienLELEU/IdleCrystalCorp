@@ -33,6 +33,8 @@ const BOOST_STACK_LIMIT := 3
 var mock: bool = true
 var _plugin: Object = null
 var _owned: Dictionary = {}
+var _catalog_loaded := false
+var _entitlements_ready := true
 
 
 func _ready() -> void:
@@ -93,6 +95,8 @@ func _on_products_loaded(_count: int) -> void:
 	# Le catalogue est prêt : c'est le bon moment de demander les droits déjà
 	# possédés, StoreKit ne renseignant is_purchased qu'à partir de maintenant.
 	refresh_entitlements()
+	_catalog_loaded = true
+	_entitlements_ready = true
 	products_loaded.emit()
 
 
@@ -108,6 +112,13 @@ func _on_plugin_purchased(native_product_id: String) -> void:
 
 
 func _on_plugin_failed(native_product_id: String, reason: String) -> void:
+	# StoreKit `pending` n'est ni un échec ni une annulation : le contrôle
+	# parental ou le compte familial doit encore valider le paiement. L'achat sera
+	# crédité plus tard par `Transaction.updates`; un toast rouge « Achat
+	# impossible » faisait croire au joueur que son paiement avait échoué.
+	if reason.begins_with("paiement en attente"):
+		GameManager.notify(reason, "info")
+		return
 	purchase_failed.emit(_internal_id_for(native_product_id), reason)
 
 
@@ -176,15 +187,27 @@ func reapply_entitlements() -> void:
 func get_display_price(product_id: String) -> String:
 	var item := get_product(product_id)
 	var fallback := str(item.get("price", ""))
-	if _plugin != null and _plugin.has_method("get_price"):
-		var price := str(_plugin.call("get_price", str(item.get("product_id", product_id))))
-		if not price.is_empty():
-			return price
+	if _plugin != null and not mock:
+		# Un achat réel ne doit JAMAIS afficher le prix du JSON : il n'est ni
+		# localisé ni garanti à jour. Tant que StoreKit n'a pas renvoyé son prix,
+		# renvoyer vide permet à `can_purchase()` de garder le bouton désactivé.
+		if not _plugin.has_method("get_price"):
+			return ""
+		return str(_plugin.call("get_price", str(item.get("product_id", product_id))))
 	return fallback
 
 
 func configure(settings: Dictionary) -> void:
 	mock = bool(settings.get("mock", true))
+	# En mode simulation, il n'y a pas de droits distants à réconcilier. En mode
+	# natif, on ferme les pubs jusqu'à la lecture de Transaction.currentEntitlements
+	# par StoreKit : un joueur ayant acheté no-ads ne doit pas voir une pub pendant
+	# la fenêtre de chargement au démarrage / après réinstallation.
+	_entitlements_ready = mock or _plugin == null or _catalog_loaded
+
+
+func are_entitlements_ready() -> bool:
+	return _entitlements_ready
 
 
 func get_products() -> Array[Dictionary]:
@@ -253,6 +276,8 @@ func unavailable_reason(product_id: String) -> String:
 		return "déjà acheté"
 	if product_id == BOOST_PRODUCT and _active_boost_count() >= BOOST_STACK_LIMIT:
 		return "surcharge déjà cumulée %d fois" % BOOST_STACK_LIMIT
+	if _plugin != null and not mock and get_display_price(product_id).is_empty():
+		return "prix App Store en cours de chargement"
 	return ""
 
 

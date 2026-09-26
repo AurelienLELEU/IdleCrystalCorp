@@ -8,10 +8,9 @@
 //
 // MODE DÉVELOPPEMENT — la partie qui casse le plus de projets :
 //
-//   En développement, on affiche les ANNONCES DE TEST de Google, jamais les
-//   vraies. Une unité de test est un identifiant public qui affiche une
-//   annonce fictive et ne rapporte aucun revenu. Les vraies annonces ne sont
-//   élargies qu'aux appareils de test enregistrés.
+//   En développement, on force l'UNITÉ DE TEST Rewarded iOS de Google, jamais
+//   l'unité de production fournie par la configuration. Un device de test mal
+//   enregistré ne peut donc pas afficher de vraies impressions.
 //
 //   Deux conséquences d'un oubli :
 //     - afficher de vraies annonces pendant les tests fait rejeter
@@ -29,6 +28,7 @@
 
 #include "idle_ads_ios.h"
 
+#include <dispatch/dispatch.h>
 #include <string.h>
 
 // `__APPLE__` ne veut PAS dire « iOS » : il est défini sur macOS aussi. Le
@@ -53,7 +53,10 @@
 // Unité d'annonce de test fournie par Google — identifiants publics, publiés
 // exprès pour cet usage. Sert de repli si aucune unité n'est configurée, pour
 // qu'un oubli de configuration n'affiche jamais une vraie annonce.
-static NSString *const kAdMobSampleRewardedUnit = @"ca-app-pub-3940256099942544/5224354917";
+// Identifiant officiel iOS Rewarded (1712485313). L'ancien suffixe 5224354917
+// est celui des annonces Rewarded Android : sur iOS, il ne teste pas le format
+// demandé et peut renvoyer une unité invalide.
+static NSString *const kAdMobSampleRewardedUnit = @"ca-app-pub-3940256099942544/1712485313";
 
 // Valeur spéciale d'AdMob désignant le simulateur iOS.
 static NSString *const kGADSimulatorDeviceId = @"Simulator";
@@ -62,6 +65,8 @@ static NSString *s_pending_reward_id = nil;
 static NSString *s_rewarded_unit = nil;
 static BOOL s_ads_ready = NO;
 static BOOL s_loading = NO;
+static BOOL s_reward_earned = NO;
+static NSUInteger s_load_generation = 0;
 
 #ifdef IDLE_ADS_NO_SDK
 
@@ -80,25 +85,35 @@ void idle_ads_ios_show_rewarded(const char *p_reward_id) { }
 
 @implementation IdleAdsDelegate
 
-// La vidéo s'est jouée jusqu'au bout, ou a été fermée après le temps minimal
-// imposé par une annonce récompensée. C'est le SEUL moment où le joueur a
-// droit à sa récompense.
+// La fermeture n'est PAS une preuve de récompense. Seul le callback
+// `userDidEarnRewardHandler` autorise le crédit; quitter avant celui-ci est un
+// échec normal, sans crédit.
 - (void)adDidDismissFullScreenContent:(GADFullScreenPresentingAd *)ad {
-	NSString *reward = s_pending_reward_id ?: @"";
+	if (s_pending_reward_id == nil) { return; }
+	NSString *reward = [s_pending_reward_id copy];
+	BOOL earned = s_reward_earned;
 	s_pending_reward_id = nil;
 	s_loading = NO;
-	idle_ads_bridge_completed(reward.utf8().get_data());
+	s_reward_earned = NO;
+	if (earned) {
+		idle_ads_bridge_completed([reward UTF8String]);
+	} else {
+		idle_ads_bridge_failed([reward UTF8String],
+				"la vidéo a été fermée avant la validation de la récompense");
+	}
 }
 
 // Interruption : réseau coupé, appel entrant, sortie de l'application. Rien
 // n'est crédité. Ce n'est pas pénalisant, une pub indisponible est normale.
 - (void)ad:(GADFullScreenPresentingAd *)ad
 		didFailToPresentFullScreenContentWithError:(NSError *)error {
-	NSString *reward = s_pending_reward_id ?: @"";
+	if (s_pending_reward_id == nil) { return; }
+	NSString *reward = [s_pending_reward_id copy];
 	NSString *why = [NSString stringWithFormat:@"vidéo refusée : %@", error.localizedDescription];
 	s_pending_reward_id = nil;
 	s_loading = NO;
-	idle_ads_bridge_failed(reward.utf8().get_data(), why.utf8().get_data());
+	s_reward_earned = NO;
+	idle_ads_bridge_failed([reward UTF8String], [why UTF8String]);
 }
 
 @end
@@ -137,16 +152,22 @@ int idle_ads_ios_configure(const char *p_app_id, const char *p_rewarded_unit_id,
 	NSString *unit = (p_rewarded_unit_id != NULL)
 			? [NSString stringWithUTF8String:p_rewarded_unit_id]
 			: @"";
-	s_rewarded_unit = unit.length > 0 ? unit : kAdMobSampleRewardedUnit;
+	// Le drapeau debug force l'unité de test, même si la configuration contient
+	// déjà l'identifiant de production. Enregistrer uniquement « Simulator »
+	// comme appareil de test ne protège pas un iPhone physique : il recevrait
+	// sinon de vraies impressions pendant le développement.
+	s_rewarded_unit = (p_debug || unit.length == 0)
+			? kAdMobSampleRewardedUnit
+			: unit;
 
 	if (s_delegate == nil) {
 		s_delegate = [[IdleAdsDelegate alloc] init];
 	}
 
 	if (p_debug) {
-		// Le simulateur est enregistré d'office. Les appareils réels se
-		// déclarent ici : Google affiche leur identifiant dans la console au
-		// premier lancement ("Use Google Mobile Ads SDK ... test device").
+		// Le simulateur est déclaré comme test device. Sur un iPhone physique,
+		// l'unité d'annonce est de toute façon forcée vers l'unité Rewarded de
+		// test ci-dessus; aucun identifiant d'appareil privé n'est nécessaire.
 		GADMobileAds.sharedInstance.requestConfiguration.testDeviceIdentifiers =
 				@[ kGADSimulatorDeviceId ];
 		NSLog(@"[IdleAds] MODE TEST actif — aucune annonce réelle ne sera affichée.");
@@ -155,14 +176,18 @@ int idle_ads_ios_configure(const char *p_app_id, const char *p_rewarded_unit_id,
 	}
 
 	[[GADMobileAds sharedInstance] startWithCompletionHandler:^(GADInitializationStatus *status) {
-		if (status.adErrors.count > 0) {
-			s_ads_ready = NO;
-			for (NSError *error in status.adErrors) {
-				NSLog(@"[IdleAds] initialisation AdMob refusée : %@", error.localizedDescription);
+		s_ads_ready = NO;
+		for (NSString *adapter_name in status.adapterStatusesByClassName) {
+			GADAdapterStatus *adapter = status.adapterStatusesByClassName[adapter_name];
+			if (adapter.state == GADAdapterInitializationStateReady) {
+				s_ads_ready = YES;
+				break;
 			}
+		}
+		if (!s_ads_ready) {
+			NSLog(@"[IdleAds] aucun adaptateur AdMob n'est prêt; les pubs seront refusées proprement.");
 			return;
 		}
-		s_ads_ready = YES;
 		NSLog(@"[IdleAds] Google Mobile Ads prêt (unité : %@)", s_rewarded_unit);
 	}];
 
@@ -171,32 +196,80 @@ int idle_ads_ios_configure(const char *p_app_id, const char *p_rewarded_unit_id,
 
 void idle_ads_ios_show_rewarded(const char *p_reward_id) {
 	if (p_reward_id == NULL) { return; }
-	if (!s_ads_ready || s_loading) { return; }
 
 	NSString *reward = [NSString stringWithUTF8String:p_reward_id];
+	if (!s_ads_ready) {
+		idle_ads_bridge_failed([reward UTF8String], "SDK AdMob pas prêt");
+		return;
+	}
+	if (s_loading || s_pending_reward_id != nil) {
+		idle_ads_bridge_failed([reward UTF8String], "une publicité est déjà en cours");
+		return;
+	}
+	if (reward.length == 0) {
+		idle_ads_bridge_failed("", "identifiant de récompense vide");
+		return;
+	}
+
 	s_pending_reward_id = reward;
 	s_loading = YES;
+	s_reward_earned = NO;
+	const NSUInteger request_generation = ++s_load_generation;
+
+	// `GADRequest` n'expose pas de propriété `timeout`. Le délai est géré ici,
+	// sur la file principale, et l'identifiant de génération rend inoffensif un
+	// callback SDK tardif après l'expiration.
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC),
+		dispatch_get_main_queue(), ^{
+			if (!s_loading || request_generation != s_load_generation) { return; }
+			NSString *pending = [s_pending_reward_id copy] ?: reward;
+			s_pending_reward_id = nil;
+			s_loading = NO;
+			s_reward_earned = NO;
+			idle_ads_bridge_failed([pending UTF8String], "délai de chargement dépassé");
+		});
 
 	GADRequest *request = [GADRequest request];
-	// Sans délai maximal, un réseau lent immobilise le joueur sur un écran noir
-	// pendant une durée indéfinie. Au-delà, l'échec est traité comme une pub
-	// indisponible, ce qui est exact.
-	request.timeout = 10.0;
-
 	[GADRewardedAd loadWithAdUnitID:s_rewarded_unit
 			request:request
 			completionHandler:^(GADRewardedAd *ad, NSError *error) {
+		if (!s_loading || request_generation != s_load_generation) { return; }
 		if (error != nil || ad == nil) {
 			NSString *why = [NSString
 					stringWithFormat:@"annonce indisponible : %@",
 					error != nil ? error.localizedDescription : @"réponse vide"];
+			NSString *pending = [s_pending_reward_id copy] ?: reward;
 			s_pending_reward_id = nil;
 			s_loading = NO;
-			idle_ads_bridge_failed(reward.utf8().get_data(), why.utf8().get_data());
+			s_reward_earned = NO;
+			idle_ads_bridge_failed([pending UTF8String], [why UTF8String]);
+			return;
+		}
+		UIViewController *presenter = idle_ads_top_view_controller();
+		if (presenter == nil) {
+			NSString *pending = [s_pending_reward_id copy] ?: reward;
+			s_pending_reward_id = nil;
+			s_loading = NO;
+			s_reward_earned = NO;
+			idle_ads_bridge_failed([pending UTF8String], "aucune fenêtre active pour afficher la publicité");
+			return;
+		}
+		NSError *present_error = nil;
+		if (![ad canPresentFromRootViewController:presenter error:&present_error]) {
+			NSString *pending = [s_pending_reward_id copy] ?: reward;
+			NSString *why = [NSString stringWithFormat:@"publicité impossible à afficher : %@",
+					present_error.localizedDescription ?: @"présentation refusée"];
+			s_pending_reward_id = nil;
+			s_loading = NO;
+			s_reward_earned = NO;
+			idle_ads_bridge_failed([pending UTF8String], [why UTF8String]);
 			return;
 		}
 		ad.fullScreenContentDelegate = s_delegate;
-		[ad presentFromRootViewController:idle_ads_top_view_controller()];
+		s_loading = NO;
+		[ad presentFromRootViewController:presenter userDidEarnRewardHandler:^{
+			s_reward_earned = YES;
+		}];
 	}];
 }
 
