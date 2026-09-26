@@ -509,11 +509,44 @@ func _test_offline_short_absence() -> void:
 	_game.set("last_save_timestamp", Time.get_unix_time_from_system() - 20.0)
 	var before := _resources()
 
+	# Le crédit passe désormais par _grant(), qui déclenche les succès. On
+	# mesure donc la somme attendue au lieu de borner à l'aveugle : la borne
+	# haute d'avant, `avant + 20 s de production * 1,5`, échouait dès qu'un
+	# succès se déclenchait — c'est-à-dire qu'elle MESURAIT le bug qu'elle
+	# prétendait surveiller, puisqu'une absence courte ne créditait ni les
+	# compteurs de run ni les succès.
+	# Un tableau, et non un simple `var rewards := 0.0` : une lambda GDScript
+	# capture les variables locales PAR VALEUR, donc un `rewards += ...` à
+	# l'intérieur ne modifierait qu'une copie invisible du reste. Le test
+	# serait alors « vert » en ignorant les récompenses — c'est-à-dire en
+	# revenant exactement à la borne large qu'il cherchait à remplacer.
+	var rewards := [0.0]
+	var unlocked: Array = []
+	var on_unlocked := func(id: String, _reward_text: String) -> void:
+		unlocked.append(id)
+		rewards[0] += _achievement_reward_value(id)
+	_game.achievement_unlocked.connect(on_unlocked)
 	_game.call("_compute_offline_gains")
+	if _game.achievement_unlocked.is_connected(on_unlocked):
+		_game.achievement_unlocked.disconnect(on_unlocked)
+
 	_check(not _game.call("has_pending_offline"), "hors-ligne court : pas de popup")
 	_check(_resources().gt(before), "hors-ligne court : gains crédités automatiquement")
-	_check(_resources().lt(before.add(BigNum.from_float(per_sec * 20.0 * 1.5))),
-		"hors-ligne court : le gain correspond bien à ~20 s")
+	var expected: float = per_sec * 20.0 + rewards[0]
+	_check(absf(_resources().to_float() - before.to_float() - expected) <= maxf(1.0, expected * 0.001),
+		"hors-ligne court : le gain vaut 20 s de production, plus les succès (%+.0f, attendu %.0f via %s)" % [
+			_resources().to_float() - before.to_float(), expected,
+			",".join(unlocked) if not unlocked.is_empty() else "aucun"])
+
+
+## Valeur numérique d'une récompense de succès, pour reconstituer le total
+## attendu. Les récompenses non chiffrées (une surcharge, par exemple) ne sont pas
+## converties en ressources et ne doivent donc pas entrer dans le calcul.
+func _achievement_reward_value(id: String) -> float:
+	for a in (_game.get("config") as GameConfig).achievements:
+		if str(a.get("id", "")) == id and str(a.get("reward_type", "")) == "resources":
+			return float(a.get("reward_value", 0.0))
+	return 0.0
 
 
 func _test_offline_cap() -> void:

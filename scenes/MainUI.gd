@@ -98,6 +98,12 @@ func _connect_signals() -> void:
 	GameManager.achievement_unlocked.connect(_on_achievement_unlocked)
 	GameManager.combo_changed.connect(_on_combo_changed)
 	GameManager.game_reset.connect(_on_game_reset)
+	# Sans cette connexion, le signal partait dans le vide : revenir au premier
+	# plan — le geste le plus courant d'un joueur mobile — calculait les gains
+	# hors-ligne, remplissait `pending_offline`, et n'affichait rien. Le joueur
+	# jouait normalement, convaincu que le jeu ne-Endort pas, et les gains
+	# étaient perdus à la fermeture suivante.
+	GameManager.offline_gains_pending.connect(_on_offline_gains_pending)
 	Store.purchase_requested.connect(_show_purchase_confirm)
 	Store.purchase_completed.connect(_on_purchase_completed)
 	Store.purchase_failed.connect(_on_purchase_failed)
@@ -840,6 +846,31 @@ func _close_all_modals() -> void:
 			(child as Modal).close()
 
 
+## Réception de `GameManager.offline_gains_pending` : le joueur revient au premier
+## plan après une absence assez longue pour mériter une popup.
+##
+## Deux gardes : ne pas empiler une popup sur une popup, et ne pas interrompre
+## une modale en cours (une confirmation d'achat, par exemple). Dans les deux cas
+## les gains ne sont pas perdus — ils restent en attente, sont persistés, et la
+## popup reviendra au prochain retour au premier plan.
+func _on_offline_gains_pending(_elapsed: float, _amount: BigNum) -> void:
+	if not GameManager.has_pending_offline():
+		return
+	if _is_modal_open():
+		# Une modale est déjà à l'écran. La fermer ici détruirait ce que le
+		# joueur est en train de décider ; on attend le prochain retour au
+		# premier plan, où la popup sera proposée de nouveau.
+		return
+	_show_offline_popup()
+
+
+func _is_modal_open() -> bool:
+	for child in _overlay_layer.get_children():
+		if child is Modal and (child as Modal).is_open():
+			return true
+	return false
+
+
 func _show_offline_popup() -> void:
 	# Garde-fou : sans gains en attente, la popup proposerait « Collecter 0 ».
 	# Elle est donc refusée plutôt que d'afficher un montant vide.
@@ -889,8 +920,15 @@ func _show_offline_popup() -> void:
 		, UITheme.PANEL_ALT)
 
 	modal.add_button("Plus tard", func() -> void:
-		# Rien n'est crédité : la période sera intégralement recalculée au
-		# prochain lancement. C'est ce qui rend le double comptage impossible.
+		# Rien n'est crédité, et c'est le bon choix : c'est ce qui rend le
+		# double comptage impossible. Les gains restent en attente, et ils sont
+		# désormais PERSISTÉS — ils survivent à la fermeture de l'app et la popup
+		# réapparaîtra au prochain lancement.
+		#
+		# L'ancien commentaire affirmait ici que « la période sera intégralement
+		# recalculée au prochain lancement ». C'était faux : `last_save_timestamp`
+		# avait déjà été avancé, et `save_game()` le pousse encore à maintenant.
+		# Rien n'était recalculé, et les gains disparaissaient.
 		modal.close()
 	, UITheme.DISABLED)
 

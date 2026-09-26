@@ -200,6 +200,17 @@ func add_button(text: String, callback: Callable, accent: Color = UITheme.ACCENT
 	return btn
 
 
+## ## true tant que cette modale est à l'écran.
+##
+## `close()` fait un `queue_free()`, qui ne prend effet qu'à la fin de l'image.
+## Entre l'appel et le frame suivant, le nœud est encore enfant de la couche et
+## encore visible : un `get_child_count() > 0` le prendrait pour une modale
+## ouverte. Cette méthode est donc explicite plutôt que fondée sur la présence
+## du nœud.
+func is_open() -> bool:
+	return is_inside_tree() and visible and not is_queued_for_deletion()
+
+
 func close() -> void:
 	dismissed.emit()
 	queue_free()

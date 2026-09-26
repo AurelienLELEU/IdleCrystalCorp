@@ -17,6 +17,7 @@ cd "$(dirname "$0")/.."
 SUITES=(
 	"test_bignum|Nombres et formatage (BigNum)"
 	"test_game|Logique de jeu, sauvegarde, hors-ligne, ascension"
+	"test_offline_persistence|Quitter l'app : gains, quarantaine, retour au premier plan"
 	"test_ui_compile|Construction de la scène principale"
 	"test_ui_interaction|Interaction réelle de l'interface"
 	"test_plugin_contract|Contrat entre le jeu et les extensions natives"

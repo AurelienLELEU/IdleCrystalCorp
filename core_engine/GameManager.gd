@@ -728,8 +728,15 @@ func _compute_offline_gains() -> void:
 		return
 
 	if elapsed < min_popup:
-		# Absence courte : on crédite sans popup et on reprogramme le point de départ.
-		current_resources = current_resources.add(amount)
+		# Absence courte : on crédite sans popup, et par le MÊME chemin que
+		# claim_offline_gains(). Créditer `current_resources` directement, comme
+		# c'était le cas, produisait un jeu à deux règles : le joueur était payé,
+		# mais ses gains n'entraient ni dans `run_earnings` (donc pas dans le
+		# calcul d'ascension) ni dans `lifetime_earnings` (donc pas dans les
+		# succès « gagné au total »). Sortir de l'app 50 fois par jour
+		# rapportait alors des ressources qui n'existaient nulle part ailleurs,
+		# et l'écart se voyait dans l'ascension.
+		_grant(amount, true)
 		return
 
 	# Si une période précédente est encore en attente — le joueur a mis
@@ -798,8 +805,16 @@ func save_game() -> void:
 		return
 	var data := _serialize()
 	var path := get_save_path()
-	# Écriture atomique : fichier temporaire puis remplacement, pour qu'une
+	# Écriture atomique : fichier temporaire puis RENOUVELLEMENT, pour qu'une
 	# coupure au milieu de l'écriture ne corrupte pas la sauvegarde.
+	#
+	# Pas de `remove()` avant le `rename()`. Le remplacement est DÉJÀ atomique —
+	# `rename()` écrase la destination — et la suppression préalable créait
+	# exactement la fenêtre de perte que le fichier temporaire sert à éviter : un
+	# processus tué entre le remove() et le rename() laissait le joueur sans
+	# aucune sauvegarde, l'ancien fichier mort et le nouveau portant encore le
+	# nom `.tmp`. Au lancement suivant `file_exists` est faux, la partie repart
+	# de zéro, et l'autosave écrase le fichier 20 secondes plus tard.
 	var tmp_path := path + ".tmp"
 	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if file == null:
@@ -811,12 +826,13 @@ func save_game() -> void:
 	if dir == null:
 		push_error("Dossier de sauvegarde inaccessible : %s" % path.get_base_dir())
 		return
-	if dir.file_exists(path.get_file()):
-		dir.remove(path.get_file())
+	# `rename()` écrase la destination, il n'y a donc rien à supprimer avant :
+	# le faire créait la fenêtre de perte que le fichier temporaire sert à éviter.
 	var err := dir.rename(tmp_path.get_file(), path.get_file())
 	if err != OK:
 		# Sur certains systèmes user:// est en lecture seule une fois l'app
-		# sandstoneée : on retombe sur une écriture directe.
+		# passée en bac à sable : on retombe sur une écriture directe.
+		# L'ancienne sauvegarde est encore là, puisque rien ne l'a supprimée.
 		var fallback := FileAccess.open(path, FileAccess.WRITE)
 		if fallback != null:
 			fallback.store_buffer(SaveCodec.encode(data))
@@ -851,6 +867,41 @@ func _serialize() -> Dictionary:
 		"stats": _stringify_keys(stats),
 		"last_save": Time.get_unix_time_from_system(),
 		"production_at_save": production_at_save.serialize(),
+		"pending_offline": _serialize_pending_offline(),
+	}
+
+
+## Les gains hors-ligne non réclamés sont de l'argent déjà gagné par le joueur.
+## Ils doivent survivre à la fermeture de l'application, exactement comme
+## `current_resources` : les garder seulement en mémoire revenait à les
+## détruire au premier autosave, qui écrit `last_save = maintenant` et fait
+## perdre définitivement la période.
+func _serialize_pending_offline() -> Dictionary:
+	if pending_offline.is_empty():
+		return {}
+	return {
+		"elapsed": float(pending_offline.get("elapsed", 0.0)),
+		"effective": float(pending_offline.get("effective", 0.0)),
+		"amount": pending_offline.get("amount", BigNum.zero()).serialize(),
+		"capped": bool(pending_offline.get("capped", false)),
+	}
+
+
+## Fonction totale : une entrée absente, mal typée, ou amounting à zéro donne un
+## dictionnaire vide — donc « rien en attente » — plutôt qu'une popup « Collecter
+## 0 » au lancement suivant.
+func _restore_pending_offline(raw: Variant) -> Dictionary:
+	if typeof(raw) != TYPE_DICTIONARY:
+		return {}
+	var r: Dictionary = raw
+	var amount := BigNum.deserialize(r.get("amount", 0.0))
+	if amount.is_zero() or amount.is_negative():
+		return {}
+	return {
+		"elapsed": maxf(0.0, float(r.get("elapsed", 0.0))),
+		"effective": maxf(0.0, float(r.get("effective", 0.0))),
+		"amount": amount,
+		"capped": bool(r.get("capped", false)),
 	}
 
 func _load_game() -> void:
@@ -864,7 +915,14 @@ func _load_game() -> void:
 			if decoded != null:
 				data = decoded
 			else:
+				# Une sauvegarde illisible n'est pas seulement un problème
+				# d'affichage : en repartant de zéro, l'autosave réécrivait le
+				# fichier 20 secondes plus tard, et la progression devenait
+				# irrécupérable. Elle est donc mise à l'écart sous un nom
+				# horodaté, intacte : le joueur repart à zéro mais peut encore
+				# récupérer, et un bug de décodage reste diagnosticable.
 				push_warning("Sauvegarde illisible, elle sera ignorée : %s" % path)
+				_quarantine_save(path)
 	elif FileAccess.file_exists(LEGACY_SAVE_PATH):
 		data = _load_legacy_json(LEGACY_SAVE_PATH)
 
@@ -876,6 +934,27 @@ func _load_game() -> void:
 		if not FileAccess.file_exists(path):
 			# Migration réussie depuis l'ancien format : on écrit au format courant.
 			save_game()
+
+
+## Renomme une sauvegarde illisible en `<nom>.corrupt-<horodatage>`, sans jamais
+## l'écraser. Best effort : si le renommage échoue, le fichier reste en place et
+## l'appelant n'a rien à faire de plus.
+func _quarantine_save(path: String) -> void:
+	var dir := DirAccess.open(path.get_base_dir())
+	if dir == null:
+		return
+	var stamp := str(int(Time.get_unix_time_from_system()))
+	var target := "%s.corrupt-%s" % [path.get_file(), stamp]
+	# Une milliseconde d'horodatage suffirait à distinguer deux quarantaines
+	# dans la même seconde, mais Time ne l'expose pas ici : on suffixe donc en
+	# incrément tant que le nom est pris, ce qui est déterministe et sans risque
+	# d'écrasement.
+	var suffix := 0
+	while dir.file_exists(target) and suffix < 1000:
+		suffix += 1
+		target = "%s.corrupt-%s-%d" % [path.get_file(), stamp, suffix]
+	if dir.rename(path.get_file(), target) == OK:
+		push_warning("Sauvegarde conservée pour récupération : user://%s" % target)
 
 
 func _load_legacy_json(path: String) -> Dictionary:
@@ -911,6 +990,21 @@ func _apply_fresh_state() -> void:
 	achievements_unlocked = {}
 	flags = {"no_ads": false}
 	last_save_timestamp = Time.get_unix_time_from_system()
+	# Les gains hors-ligne en attente font partie de l'état sauvegardé, donc ils
+	# doivent disparaître avec le reste. Les effacer ici, et seulement ici,
+	# importait parce que ce chemin est emprunté quand la sauvegarde est
+	# illisible : des gains en attente de la session précédente subsistaient
+	# alors que tout le reste retombait à zéro, et le joueur se retrouvait avec
+	# de l'argent que rien n'expliquait. C'est le scénario de double comptage que
+	# l'acceptation de la règle « jamais deux fois » cherche à interdire.
+	pending_offline = {}
+	stats = STAT_DEFAULTS.duplicate(true)
+	boost_multiplier = 1.0
+	boost_ends_at = 0.0
+	boost_started_at = 0.0
+	_boost_active = false
+	combo_stacks = 0
+	combo_timer = 0.0
 
 
 func _apply_save_data(d: Dictionary) -> void:
@@ -932,6 +1026,7 @@ func _apply_save_data(d: Dictionary) -> void:
 	stats = _merge_stats(d.get("stats", {}))
 	flags = _merge_flags(d.get("flags", {}))
 	last_save_timestamp = float(d.get("last_save", 0.0))
+	pending_offline = _restore_pending_offline(d.get("pending_offline", {}))
 	if last_save_timestamp <= 0.0:
 		last_save_timestamp = Time.get_unix_time_from_system()
 
@@ -958,16 +1053,14 @@ func _apply_save_data(d: Dictionary) -> void:
 
 ## Repartir de zéro en conservant l'identité de la sauvegarde.
 func hard_reset() -> void:
+	# _apply_fresh_state() remet déjà à zéro les gains en attente, les
+	# statistiques, la surcharge et les compteurs d'ascension. Les répéter ici
+	# comme c'était le cas auparavant laissait deux propriétaires pour le même
+	# état : ajouter un champ à la remise à zéro ne serait pris en compte que si
+	# on se rappelait de le rajouter ici aussi, et l'oublier ne produirait
+	# aucune erreur.
 	_apply_fresh_state()
-	stats = STAT_DEFAULTS.duplicate(true)
 	_stats_init()
-	boost_multiplier = 1.0
-	boost_ends_at = 0.0
-	boost_started_at = 0.0
-	_boost_active = false
-	pending_offline = {}
-	combo_stacks = 0
-	combo_timer = 0.0
 	_production_dirty = true
 	_click_dirty = true
 	_recalculate()
