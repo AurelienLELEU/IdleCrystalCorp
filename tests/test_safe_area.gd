@@ -28,6 +28,7 @@ const VIEWPORT_H := 844.0
 ## Encoche simulée : iPhone 15 Pro, portrait, barre d'état et indicateur
 ## d'accueil en mode classique.
 const NOTCH := {"left": 0.0, "top": 120.0, "right": 0.0, "bottom": 90.0}
+const LANDSCAPE_NOTCH := {"left": 90.0, "top": 0.0, "right": 0.0, "bottom": 0.0}
 
 ## Tolérance en pixels. Un arrondi de `MarginContainer` suffit à faire varier la
 ## mesure d'une unité ; prétendre à l'égalité parfaite testerait l'arrondi, pas
@@ -58,6 +59,7 @@ func _run() -> void:
 	await _test_modal_too_tall_no_notch()
 	await _test_no_invisible_container()
 	await _test_mock_ad_overlay()
+	await _test_combo_label_stays_usable()
 
 	quit(1 if _failures > 0 else 0)
 
@@ -472,9 +474,160 @@ func _test_mock_ad_overlay() -> void:
 	await process_frame
 
 
-# ==================================================================== outils
+# ==================================================== compteur de combo flottant
 
-## Tous les descendants d'un nœud, en profondeur.
+## Le compteur de combo est le seul élément de l'écran qui flotte au-dessus du
+## contenu, et il était le seul aussi à être HORS du `MarginContainer` de zone
+## sûre : enfant direct de la racine, ancré au bas de la fenêtre entière, il
+## tombait entièrement sous l'indicateur d'accueil. Mesuré avant correction,
+## avec l'encoche du projet : le libellé allait de y = 816 à 842 alors que la zone
+## non sûre commençait à 810. Le joueur ne voyait jamais son combo.
+##
+## Le test vérifie trois choses, dans cet ordre : que le libellé est dans la zone
+## sûre, qu'il ne chevauche pas la barre basse, et qu'il SUIT l'encoche. La
+## troisième est celle qui distingue un correctif d'un chanceux : un libellé
+## simplement remonté à une position fixe passerait les deux premières.
+func _test_combo_label_stays_usable() -> void:
+	var ui: Control = await _open_main_ui()
+	if ui == null:
+		_check(false, "compteur de combo : MainUI a pu être instancié")
+		return
+
+	var combo: Label = ui.get("_combo_label") as Label
+	var bar: Control = ui.get("_bottom_bar") as Control
+	_check(combo != null, "compteur de combo : le libellé existe")
+	_check(bar != null, "compteur de combo : la barre basse existe")
+	if combo == null or bar == null:
+		return
+
+	# La barre basse doit avoir exactement les cinq enfants attendus. Un
+	# `add_child` glissé dans la fonction de positionnement du libellé — ce qui
+	# est arrivé pendant le développement — la doublait, et une barre de dix
+	# boutons devenait plus large que l'écran (487 px pour 390). Ce contrôle
+	# attrape la famille entière de régressions.
+	_check(bar.get_child_count() == 5,
+		"compteur de combo : la barre basse a 5 enfants et pas plus (%d)"
+			% bar.get_child_count())
+
+	# Le libellé est visible seulement avec un combo, donc on en fabrique un par
+	# des récoltes réelles plutôt que de forcer `visible`.
+	_check(not combo.visible, "compteur de combo : masqué tant qu'aucun combo")
+	var game: Variant = root.get_node_or_null("GameManager")
+	_check(game != null, "compteur de combo : autoload GameManager présent")
+	if game == null:
+		return
+	for i in 4:
+		game.call("harvest")
+	await process_frame
+	_check(combo.visible, "compteur de combo : visible après 4 récoltes")
+
+	_assert_combo_usable(combo, bar, "sans encoche", 0.0)
+
+	# Encoche par le chemin exact de la production, puis le label doit avoir
+	# suivi la barre vers le haut.
+	var before := combo.get_global_rect().position.y
+	SafeArea.write(ui.get_node("Root") as MarginContainer, NOTCH)
+	await process_frame
+	await process_frame
+	_assert_combo_usable(combo, bar, "sous encoche", float(NOTCH["bottom"]))
+	_check(combo.get_global_rect().position.y < before,
+		"compteur de combo : le libellé a suivi la barre vers le haut (%.0f -> %.0f)"
+			% [before, combo.get_global_rect().position.y])
+
+	# Rotation : la fenêtre change de forme et l'encoche simulée passe sur le
+	# bord gauche, comme sur un téléphone avec l'écouteur en paysage.
+	_host.size = Vector2(VIEWPORT_H, VIEWPORT_W)
+	await process_frame
+	await process_frame
+	# `SafeArea.bind()` recalcule ses marges au redimensionnement; simuler
+	# l'encoche après ce recalcul évite que son callback headless la remplace.
+	var before_x := combo.get_global_rect().position.x
+	SafeArea.write(ui.get_node("Root") as MarginContainer, LANDSCAPE_NOTCH)
+	await process_frame
+	await process_frame
+	_assert_combo_usable(combo, bar, "en paysage", 0.0,
+		float(LANDSCAPE_NOTCH["left"]))
+	_check(combo.get_global_rect().position.x > before_x,
+		"compteur de combo : le libellé suit l'encoche en paysage (%.0f -> %.0f)"
+			% [before_x, combo.get_global_rect().position.x])
+
+	ui.queue_free()
+	await process_frame
+
+
+## Les conditions qu'un libellé flottant doit respecter, quel que soit l'écran :
+## dans la zone sûre, dans l'écran, et juste au-dessus de la barre basse.
+##
+## Les dimensions de référence sont LUES sur l'hôte, jamais reprises des
+## constantes : après une rotation, la fenêtre fait 844 x 390 et non 390 x 844, et
+## une vérification figée sur la constante passerait sur un écran de téléphone
+## en portrait puis échouerait — ou l'inverse — à la première rotation.
+##
+## Le libellé est assemblé par concaténation AVANT l'opérateur `%`, et
+## l'ensemble est mis entre parenthèses. `a + b % c` s'analyse comme
+## `a + (b % c)` : le format ne s'applique qu'à la dernière chaîne. Trois
+## vérifications affichaient donc littéralement « %s » et « %.0f » sans jamais
+## échouer — des contrôles qui ne peuvent pas échouer, c'est-à-dire des
+## contrôles inutiles.
+func _assert_combo_usable(combo: Label, bar: Control, when: String,
+		notch_bottom: float, notch_left: float = 0.0) -> void:
+	var c := combo.get_global_rect()
+	var b := bar.get_global_rect()
+	var screen := _host.size
+	var unsafe_top: float = screen.y - notch_bottom
+
+	_check(c.position.y + c.size.y <= screen.y + EPS,
+		("compteur de combo %s : le libellé tient dans la hauteur "
+			+ "(bas %.0f <= %.0f)") % [when, c.position.y + c.size.y, screen.y])
+	_check(c.position.y < unsafe_top,
+		("compteur de combo %s : le libellé est au-dessus de la zone non sûre "
+			+ "(%.0f < %.0f)") % [when, c.position.y, unsafe_top])
+	_check(not c.intersects(b),
+		"compteur de combo %s : le libellé ne chevauche pas la barre basse" % when)
+	# ET il est juste au-dessus, pas flottant à l'autre bout de l'écran. Le
+	# libellé est ancré par la CONSTANTE `BOTTOM_BAR_HEIGHT` : si la barre
+	# changeait de hauteur sans que la constante suive, le libellé s'en
+	# éloignerait — invisible à un simple test de non-chevauchement. L'écart
+	# toléré ici est de 12 px, large assez pour absorber un arrondi de mise en
+	# page, étroit assez pour voir une dérive.
+	var gap := b.position.y - (c.position.y + c.size.y)
+	_check(gap >= -EPS and gap <= 12.0,
+		("compteur de combo %s : le libellé est juste au-dessus de la barre "
+			+ "(écart %.0f px)") % [when, gap])
+	_check(c.position.x >= -EPS and c.position.x + c.size.x <= screen.x + EPS,
+		("compteur de combo %s : le libellé tient dans la largeur "
+			+ "(%.0f..%.0f dans %.0f)")
+			% [when, c.position.x, c.position.x + c.size.x, screen.x])
+	_check(c.position.x >= notch_left - EPS,
+		("compteur de combo %s : le libellé reste à droite de l'encoche "
+			+ "(%.0f >= %.0f)") % [when, c.position.x, notch_left])
+
+
+## Instancie `Main.tscn` dans un conteneur de la taille d'un téléphone, avec un
+## combo actif. Renvoie `null` si la scène ne peut pas être chargée, pour que
+## l'échec soit visible plutôt que silencieux.
+func _open_main_ui() -> Control:
+	if _host != null and is_instance_valid(_host):
+		_host.queue_free()
+		await process_frame
+	_host = Control.new()
+	root.add_child(_host)
+	_host.position = Vector2.ZERO
+	_host.size = Vector2(VIEWPORT_W, VIEWPORT_H)
+	await process_frame
+
+	var packed: PackedScene = load("res://scenes/Main.tscn")
+	if packed == null:
+		_check(false, "compteur de combo : Main.tscn est chargeable")
+		return null
+	var ui := packed.instantiate() as Control
+	_host.add_child(ui)
+	await process_frame
+	await process_frame
+	return ui
+
+
+# ==================================================================== outils
 func _all_children(node: Node) -> Array[Node]:
 	var out: Array[Node] = []
 	for child in node.get_children():

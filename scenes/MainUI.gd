@@ -27,6 +27,16 @@ const BOOST_AD_MULTIPLIER := 10.0
 const BOOST_AD_MINUTES := 30.0
 const FREE_CRYSTALS_AD_SECONDS := 300.0
 
+## Taille du compteur de combo flottant, en unités de mise en page, et écart
+## avec la barre basse. Constantes pour que le test puisse vérifier la position
+## sans dupliquer les valeurs.
+const COMBO_LABEL_HEIGHT := 28.0
+const COMBO_LABEL_GAP := 4.0
+
+## Hauteur minimale de la barre basse. Partagée par les boutons de navigation,
+## le bouton de récolte et le positionnement du compteur de combo.
+const BOTTOM_BAR_HEIGHT := 66.0
+
 @onready var _root_margin: MarginContainer = $Root
 @onready var _title_label: Label = $Root/Layout/TitleLabel
 @onready var _resource_label: Label = $Root/Layout/ResourcePanel/ResourceBox/ResourceLabel
@@ -45,6 +55,9 @@ var _current_page: String = ""
 var _nav_buttons: Dictionary = {}
 var _harvest_button: Button
 var _combo_label: Label
+## Support du compteur de combo : un `Control` transparent pleine page, enfant du
+## `MarginContainer` de zone sûre. Voir `_build_bottom_bar()`.
+var _combo_holder: Control
 var _achievements_button: Button
 var _settings_rows: Dictionary = {}
 var _tick_count: int = 0
@@ -106,7 +119,7 @@ func _connect_signals() -> void:
 	# Sans cette connexion, le signal partait dans le vide : revenir au premier
 	# plan — le geste le plus courant d'un joueur mobile — calculait les gains
 	# hors-ligne, remplissait `pending_offline`, et n'affichait rien. Le joueur
-	# jouait normalement, convaincu que le jeu ne-Endort pas, et les gains
+	# jouait normalement, convaincu que le jeu n'avait pas calculé ses gains,
 	# étaient perdus à la fermeture suivante.
 	GameManager.offline_gains_pending.connect(_on_offline_gains_pending)
 	Store.purchase_requested.connect(_show_purchase_confirm)
@@ -218,16 +231,7 @@ func _small_button(text: String, callback: Callable) -> Button:
 # ----------------------------------------------------------------- barre basse
 
 func _build_bottom_bar() -> void:
-	_combo_label = Label.new()
-	_combo_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_combo_label.offset_top = -28
-	_combo_label.offset_bottom = -2
-	_combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_combo_label.add_theme_color_override("font_color", UITheme.GOLD)
-	_combo_label.add_theme_font_size_override("font_size", 15)
-	_combo_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_combo_label.visible = false
-	add_child(_combo_label)
+	_build_combo_label()
 
 	_nav_buttons[PAGE_BUILDINGS] = _nav_button("🏗️ Bâtiments", PAGE_BUILDINGS)
 	_nav_buttons[PAGE_CLICKS] = _nav_button("⚡ Clics", PAGE_CLICKS)
@@ -236,7 +240,7 @@ func _build_bottom_bar() -> void:
 
 	_harvest_button = Button.new()
 	_harvest_button.text = "⛏️ RÉCOLTER"
-	_harvest_button.custom_minimum_size = Vector2(0, 66)
+	_harvest_button.custom_minimum_size = Vector2(0, BOTTOM_BAR_HEIGHT)
 	_harvest_button.add_theme_font_size_override("font_size", 16)
 	_harvest_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_harvest_button.size_flags_stretch_ratio = 1.5
@@ -252,11 +256,35 @@ func _build_bottom_bar() -> void:
 	_bottom_bar.add_child(_nav_buttons[PAGE_PRESTIGE])
 
 
+## Le compteur était un enfant direct de la racine, hors de la zone sûre : sur
+## iPhone, il se retrouvait sous l'indicateur d'accueil. Ce support transparent
+## occupe la zone sûre et porte le libellé; marges et rotations sont donc gérées
+## par le `MarginContainer`, sans recalcul séparé des insets.
+func _build_combo_label() -> void:
+	_combo_holder = Control.new()
+	_combo_holder.name = "ComboHolder"
+	_combo_holder.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_combo_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root_margin.add_child(_combo_holder)
+
+	_combo_label = Label.new()
+	_combo_label.name = "ComboLabel"
+	_combo_label.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_combo_label.offset_bottom = -(BOTTOM_BAR_HEIGHT + COMBO_LABEL_GAP)
+	_combo_label.offset_top = _combo_label.offset_bottom - COMBO_LABEL_HEIGHT
+	_combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_combo_label.add_theme_color_override("font_color", UITheme.GOLD)
+	_combo_label.add_theme_font_size_override("font_size", 15)
+	_combo_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_combo_label.visible = false
+	_combo_holder.add_child(_combo_label)
+
+
 func _nav_button(text: String, page_name: String) -> Button:
 	var btn := Button.new()
 	btn.text = text
 	btn.add_theme_font_size_override("font_size", 13)
-	btn.custom_minimum_size = Vector2(0, 66)
+	btn.custom_minimum_size = Vector2(0, BOTTOM_BAR_HEIGHT)
 	btn.clip_text = true
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.pressed.connect(func() -> void: _switch_page(page_name))

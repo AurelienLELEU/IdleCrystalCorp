@@ -24,7 +24,7 @@ SUITES=(
 	"test_plugin_contract|Contrat entre le jeu et les extensions natives|47"
 	"test_ads_economy|Plafonds quotidiens, budget commun, fenêtre de pub|34"
 	"test_native_load|Chargement réel des extensions compilées|19"
-	"test_safe_area|Zone sûre, centrage et débordement de la popup|64"
+	"test_safe_area|Zone sûre, centrage, combo et débordement de la popup|90"
 )
 
 # Le nombre de vérifications ATTENDU par suite, dans la table ci-dessus.
