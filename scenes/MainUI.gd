@@ -664,6 +664,27 @@ func _build_store_page() -> void:
 		rows[id] = row
 	_page_data[PAGE_STORE] = {"rows": rows}
 
+	# Restauration des achats.
+	#
+	# `StoreService.restore_purchases()` existait, était correct, était testé —
+	# et n'avait AUCUN point d'entrée dans l'interface. Son seul appelant dans
+	# tout le projet était la suite de tests. C'est un motif de refus de la revue
+	# (guideline 3.1.1, « restauration des achats » doit être accessible à
+	# l'utilisateur) et un vrai piège pour le joueur : réinstallation, changement
+	# d'appareil, achat sur l'ancien iPad — sans bouton, les droits sont perdus.
+	#
+	# Le bouton n'est pas masqué en mode simulation : la restauration y est réelle
+	# pour les achats déjà enregistrés dans l'état local, donc la simuler serait
+	# pire que ne rien faire.
+	var restore := _make_row("restore")
+	restore.title.text = "♻️ Restaurer mes achats"
+	restore.subtitle.text = ("Réinstallez l'application, changez d'appareil, ou changez "
+		+ "d'Apple ID : vos achats reviennent sans repayer.")
+	restore.button.text = "♻️ Restaurer"
+	restore.button.pressed.connect(func() -> void: Store.restore_purchases())
+	box.add_child(restore.root)
+	rows["restore"] = restore
+
 	var note := Label.new()
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.add_theme_color_override("font_color", UITheme.MUTED)

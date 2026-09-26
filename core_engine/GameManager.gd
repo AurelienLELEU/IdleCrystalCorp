@@ -77,6 +77,16 @@ var stats: Dictionary = {}
 var boost_multiplier: float = 1.0
 var boost_ends_at: float = 0.0
 var boost_started_at: float = 0.0
+## Nombre de surcharges appliquées dans la fenêtre en cours. Remis à zéro dès
+## que la surcharge expire.
+##
+## C'est le compteur que `StoreService` plafonne à 3 pour le produit
+## « Surcharge ». Il n'existait pas : le plafond se fiait au temps restant, via
+## une heuristique (« au-delà de 5 h restantes, le joueur en a 3 ») qui rendait
+## `2` dès le premier achat de 2 h, donc jamais `3`. Le plafond ne bloquait
+## rien, et « Cumuleable jusqu'à 3 fois » était faux deux fois : le compteur
+## disait n'importe quoi, et la durée, elle, ne cumulait pas du tout.
+var boost_stacks: int = 0
 
 ## Production au moment du dernier point de contrôle : c'est elle qui sert au
 ## calcul des gains hors-ligne, sinon acheter juste avant de quitter ne rapporterait
@@ -151,6 +161,9 @@ func _process(delta: float) -> void:
 		_boost_active = false
 		boost_multiplier = 1.0
 		boost_ends_at = 0.0
+		# La fenêtre est close : le compteur repart à zéro, sinon le plafond
+		# d'achat resterait atteint pour toujours après un seul usage.
+		boost_stacks = 0
 		_production_dirty = true
 		notify("Votre surcharge est terminée.", "info")
 
@@ -948,6 +961,7 @@ func _serialize() -> Dictionary:
 		"boost_multiplier": boost_multiplier,
 		"boost_ends_at": boost_ends_at,
 		"boost_started_at": boost_started_at,
+		"boost_stacks": boost_stacks,
 		"flags": _stringify_keys(flags),
 		"stats": _stringify_keys(stats),
 		"last_save": Time.get_unix_time_from_system(),
@@ -1087,6 +1101,7 @@ func _apply_fresh_state() -> void:
 	boost_multiplier = 1.0
 	boost_ends_at = 0.0
 	boost_started_at = 0.0
+	boost_stacks = 0
 	_boost_active = false
 	combo_stacks = 0
 	combo_timer = 0.0
@@ -1108,6 +1123,10 @@ func _apply_save_data(d: Dictionary) -> void:
 	boost_multiplier = float(d.get("boost_multiplier", 1.0))
 	boost_ends_at = float(d.get("boost_ends_at", 0.0))
 	boost_started_at = float(d.get("boost_started_at", 0.0))
+	# Une sauvegarde antérieure à ce champ n'a pas de compteur. Le reconstruire
+	# à 1 plutôt qu'à 0 : la surcharge est active, donc au moins un achat a eu
+	# lieu, et repartir de 0 laisserait le joueur racheter ses 3 fois.
+	boost_stacks = maxi(1, int(d.get("boost_stacks", 1))) if boost_ends_at > 0.0 else 0
 	stats = _merge_stats(d.get("stats", {}))
 	flags = _merge_flags(d.get("flags", {}))
 	last_save_timestamp = float(d.get("last_save", 0.0))
@@ -1270,18 +1289,31 @@ func grant_store_product(product_id: String, silent: bool = false) -> void:
 	save_game()
 
 
+## Applique une surcharge temporaire, en AJOUTANT sa durée à celle qui reste.
+##
+## C'est `boost_ends_at += …` et non `= now + …`. La ligne d'origine remplaçait
+## la fenêtre : trois achats de « Production ×10 pendant 2 heures » —
+## 5,97 € — donnaient 2 heures, pas 6. Le produit porte « Cumuleable jusqu'à 3
+## fois » et le joueur payait pour 1. Mesuré : 6 achats successifs, 2 h 00
+## restantes à chaque étape.
+##
+## Le multiplicateur, lui, ne s'additionne pas : c'est le maximum. Cumuler deux
+## ×10 donnerait ×100, ce qui n'est pas ce qu'annonce le produit.
 func _apply_boost(multiplier: float, hours: float) -> void:
 	var now := Time.get_unix_time_from_system()
 	var active := now < boost_ends_at
 	boost_multiplier = multiplier if not active else maxf(multiplier, boost_multiplier)
-	# Une prolongation repart d'une nouvelle fenêtre : on remet le début à now
-	# pour que la barre de progression reste lisible.
+	# Une prolongation AJOUTE à la fenêtre en cours. Une première surcharge, ou
+	# une surcharge expirée, en ouvre une nouvelle : le début est alors remis à
+	# `now` pour que la barre de progression reste lisible.
 	boost_started_at = now if not active else boost_started_at
-	boost_ends_at = now + hours * 3600.0
+	boost_ends_at = (boost_ends_at if active else now) + hours * 3600.0
+	boost_stacks += 1
 	_boost_active = true
 	_production_dirty = true
 	_recalculate()
-	notify("Surcharge active : production %s pendant %s" % [Fmt.multiplier(boost_multiplier), Fmt.duration(hours * 3600.0)], "success")
+	notify("Surcharge cumulée : production %s pendant %s au total" % [
+		Fmt.multiplier(boost_multiplier), Fmt.duration(get_boost_remaining())], "success")
 
 
 ## Surcharge temporaire, y compris obtenue via une pub récompensée.
@@ -1294,6 +1326,9 @@ func _apply_boost_state() -> void:
 	if not _boost_active and boost_ends_at > 0.0:
 		boost_multiplier = 1.0
 		boost_ends_at = 0.0
+		# Une surcharge expirée est une fenêtre close : son compteur est remis à
+		# zéro, sinon le plafond d'achat de 3 resterait atteint pour toujours.
+		boost_stacks = 0
 
 
 # ======================================================================== divers

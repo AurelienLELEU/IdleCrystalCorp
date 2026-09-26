@@ -62,6 +62,9 @@ func _run() -> void:
 	_test_prestige()
 	_test_store_no_ads()
 	_test_boost()
+	_test_boost_stacks_accumulate()
+	_test_boost_purchase_cap()
+	_test_boost_cap_counts_applications_not_hours()
 	_test_hard_reset()
 
 	_wipe()
@@ -829,6 +832,143 @@ func _test_boost() -> void:
 	_check(_game.call("is_boost_active"), "surcharge : active après rechargement")
 	_check(_game.call("get_boost_remaining") <= remaining + 1.0,
 		"surcharge : le temps restant est conserve, pas reinitialise")
+
+
+## « Cumuleable jusqu'à 3 fois », c'est écrit sur la fiche produit de la
+## boutique. Ça ne l'était pas : `_apply_boost` REMPLAÇAIT la fenêtre au lieu de
+## l'allonger, donc trois achats de « 2 heures » — 5,97 € — donnaient 2 heures.
+## Le joueur payait pour 1 et en recevait 1.
+func _test_boost_stacks_accumulate() -> void:
+	_reset()
+	# Une heure par surcharge. La marge de 0,1 h absorbe l'écart de quelques
+	# secondes dû aux trois appels successifs : on veut détecter une fenêtre
+	# REMPLACÉE (1 h), pas quelques millisecondes d'horloge.
+	for i in 3:
+		_game.call("grant_temporary_boost", 10.0, 1.0)
+		var remaining: float = _game.call("get_boost_remaining")
+		# Le « pas 1 h » n'a de sens qu'à partir du deuxième appel : c'est la
+		# fenêtre remplacée qui le montrait.
+		var contrarian := "" if i == 0 else " et non 1 h"
+		_check(remaining > (i + 1) * 3600.0 - 60.0,
+			"surcharge cumulée : %d × 1 h laissent %d h%s (%.2f h)"
+				% [i + 1, i + 1, contrarian, remaining / 3600.0])
+	_check(int(_game.get("boost_stacks")) == 3,
+		"surcharge : le compteur d'applications vaut 3 (%d)" % int(_game.get("boost_stacks")))
+	# Le multiplicateur ne s'additionne pas : c'est le maximum. Cumuler deux
+	# fois ×10 donnerait ×100, ce qu'aucune fiche produit n'annonce.
+	_check(is_equal_approx(float(_game.get("boost_multiplier")), 10.0),
+		"surcharge : le multiplicateur reste le maximum, pas le produit (%s)"
+			% float(_game.get("boost_multiplier")))
+
+	# Le compteur survit à la sauvegarde : sinon un redémarrage rendrait les 3
+	# emplacements d'achat gratuits, et le plafond n'arrêterait plus rien.
+	_game.call("save_game")
+	_game.call("_load_game")
+	_check(int(_game.get("boost_stacks")) == 3,
+		"surcharge : le compteur survit à un rechargement (%d)"
+			% int(_game.get("boost_stacks")))
+
+	# Il repart à zéro quand la fenêtre se ferme, sinon le joueur ne pourrait
+	# plus jamais acheter la surcharge après un seul usage.
+	_game.set("boost_ends_at", Time.get_unix_time_from_system() - 1.0)
+	_game.call("_process", 0.016)
+	_check(int(_game.get("boost_stacks")) == 0,
+		"surcharge : le compteur repart à zéro à l'expiration (%d)"
+			% int(_game.get("boost_stacks")))
+	_check(not _game.call("is_boost_active"), "surcharge : la fenêtre est bien close")
+
+
+## Le plafond du produit, vérifié de bout en bout : la fiche produit annonce
+## « jusqu'à 3 fois », et l'achat doit s'arrêter là. Il ne s'arrêtait nulle
+## part : `_active_boost_count()` déduisait le compte du temps restant et
+## rendait 2 dès le premier achat de 2 h, donc toujours moins que le seuil de
+## 3. Mesuré avant correction : 5 achats accordés.
+func _test_boost_purchase_cap() -> void:
+	_reset()
+	var store: Node = root.get_node_or_null("Store")
+	_check(store != null, "plafond de surcharge : autoload Store présent")
+	if store == null:
+		return
+	store.set("mock", true)
+	store.set("_plugin", null)
+	store.set("_owned", {})
+
+	var cfg: GameConfig = _game.get("config") as GameConfig
+	var product: Dictionary = cfg.store_product("boost_production")
+	_check(not product.is_empty(), "plafond de surcharge : le produit existe")
+	if product.is_empty():
+		return
+	var grant: Dictionary = product.get("grant", {})
+	var hours: float = float(grant.get("boost_hours", 0.0))
+	_check(hours > 0.0, "plafond de surcharge : la durée est connue (%s h)" % hours)
+	var limit: int = int(store.get("BOOST_STACK_LIMIT"))
+	# La fiche produit ne doit pas promettre plus que le code n'autorise : c'est
+	# elle qui est lue par le joueur au moment de payer.
+	_check(str(product.get("description", "")).contains(str(limit)),
+		"la fiche produit annonce exactement le plafond appliqué (%d fois) — « %s »"
+			% [limit, str(product.get("description", ""))])
+
+	var granted := 0
+	for _i in limit + 2:
+		if not bool(store.call("can_purchase", "boost_production")):
+			break
+		store.call("submit_purchase", "boost_production")
+		granted += 1
+	_check(granted == limit, "le plafond bloque l'achat n°%d (%d achats accordés)"
+		% [limit + 1, granted])
+	_check(int(_game.get("boost_stacks")) == limit, "et le compteur vaut le plafond")
+	var remaining: float = _game.call("get_boost_remaining")
+	_check(remaining > (hours * limit - 0.1) * 3600.0,
+		"la durée cumulée correspond à %d achats de %.1f h (%.2f h restantes)"
+			% [limit, hours, remaining / 3600.0])
+
+	# Le message de refus doit être exact. « Déjà possédé ou indisponible »
+	# aurait été un mensonge : « Surcharge » est un CONSOMMABLE, donc le joueur
+	# ne le possède pas, il l'a épuisé.
+	var reason: String = str(store.call("unavailable_reason", "boost_production"))
+	_check(not reason.is_empty(), "le refus donne une raison (« %s »)" % reason)
+	_check(not reason.contains("possédé"),
+		"la raison ne prétend pas que le produit est possédé (« %s »)" % reason)
+	_check(reason.contains(str(limit)),
+		"la raison cite le plafond atteint (« %s »)" % reason)
+	store.set("_plugin", null)
+
+
+## Le plafond doit compter des applications, pas des heures.
+##
+## Le test précédent ne voyait pas la différence : avec des surcharges de 2 h,
+## l'ancienne heuristique (« au-delà de 5 h restantes, le joueur en a 3 »)
+## rendait 2, 2, puis 3 — exactement la bonne réponse, par coïncidence. Une
+## coïncidence suffit à faire passer un test, et elle disparaît dès que la durée
+## change.
+##
+## Avec des surcharges de 30 minutes — la durée des pubs récompensées, donc un
+## cas réel — l'heuristique rend 2 indéfiniment et le plafond de 3 n'est jamais
+## atteint. C'est le cas qui distingue un compteur d'une estimation.
+func _test_boost_cap_counts_applications_not_hours() -> void:
+	_reset()
+	var store: Node = root.get_node_or_null("Store")
+	_check(store != null, "compteur de surcharge : autoload Store présent")
+	if store == null:
+		return
+	store.set("mock", true)
+	store.set("_plugin", null)
+	var limit: int = int(store.get("BOOST_STACK_LIMIT"))
+
+	var counted := 0
+	for _i in limit + 2:
+		_game.call("grant_temporary_boost", 10.0, 0.5)
+		counted += 1
+		var n: int = int(store.call("_active_boost_count"))
+		if n >= limit:
+			break
+	_check(counted == limit,
+		"le plafond compte les applications même quand elles sont courtes (%d pour %d)"
+			% [counted, limit])
+	_check(int(store.call("_active_boost_count")) == limit,
+		"et le compteur expose le vrai nombre (%d)"
+			% int(store.call("_active_boost_count")))
+	store.set("_plugin", null)
 
 
 func _test_hard_reset() -> void:

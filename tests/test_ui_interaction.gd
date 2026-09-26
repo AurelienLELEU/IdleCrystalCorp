@@ -71,6 +71,7 @@ func _run() -> void:
 	await _test_research_page_buy()
 	await _test_offline_popup()
 	await _test_store_confirmation()
+	await _test_restore_button()
 	await _test_settings_toggles()
 	await _test_hard_reset_from_ui()
 	await _test_responsive_layout()
@@ -365,6 +366,52 @@ func _test_settings_toggles() -> void:
 	await process_frame
 	_check(bool(audio.get("muted")) == not muted_before, "réglages : le son se bascule")
 	audio.call("set_muted", muted_before)
+
+
+## Le bouton « Restaurer mes achats » doit exister ET déclencher la
+## restauration. La méthode `StoreService.restore_purchases()` existait depuis le
+## début, était correcte, était testée — et son seul appelant dans tout le
+## projet était la suite de tests. Un joueur qui réinstalle l'application, ou qui
+## change d'appareil, n'avait aucun moyen de retrouver ses droits : motif de
+## refus de la revue (guideline 3.1.1).
+##
+## On clique le VRAI bouton, et on vérifie l'effet sur le Store, pas la
+## présence d'une chaîne de caractères.
+func _test_restore_button() -> void:
+	_game.call("hard_reset")
+	_game.set("pending_offline", {})
+	_ui.call("_switch_page", "store")
+	await process_frame
+
+	var store: Node = root.get_node_or_null("Store")
+	_check(store != null, "restauration : autoload Store présent")
+	if store == null:
+		return
+
+	# Un achat que le Store connaît et que le jeu a oublié : c'est le scénario
+	# réel d'une réinstallation.
+	store.set("_owned", {})
+	store.set("mock", true)
+	store.set("_plugin", null)
+	# L'ATTRIBUTION passe par le Store, pas par `GameManager.grant_store_product`
+	# : c'est `_grant()` qui remplit `Store._owned`. Appeler le jeu
+	# directement pose le drapeau du jeu et laisse le Store dans l'ignorance —
+	# il n'y a alors rien à restaurer, et le test passerait ou échouerait pour la
+	# mauvaise raison. (Fait : c'est ce que faisait la première version de ce
+	# test, et elle échouait.)
+	store.call("_grant", "supprimer_pubs")
+	_check(_game.call("has_no_ads"), "restauration : l'achat est accordé")
+	# `hard_reset()` ne convient PLUS ici : depuis la correction des droits,
+	# il les rend lui-même. On simule donc directement l'oubli du jeu.
+	_game.set("flags", {})
+	_check(not _game.call("has_no_ads"), "restauration : le droit a bien été perdu")
+
+	_click_button_with_text(_ui, "Restaurer")
+	await process_frame
+	await process_frame
+	_check(_game.call("has_no_ads"),
+		"restauration : le bouton rend les droits, sans repayer")
+	store.set("_owned", {})
 
 
 func _test_hard_reset_from_ui() -> void:

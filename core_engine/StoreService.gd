@@ -24,6 +24,12 @@ signal purchase_failed(product_id: String, reason: String)
 
 const PLUGIN_CLASS := "IdleStore"
 
+## Produit de surcharge, et nombre de fois où il peut être cumulé. Doit rester
+## cohérent avec la description du produit dans `data/game_config.json`
+## (« Cumuleable jusqu'à 3 fois ») : le test `test_ads_economy` compare les deux.
+const BOOST_PRODUCT := "boost_production"
+const BOOST_STACK_LIMIT := 3
+
 var mock: bool = true
 var _plugin: Object = null
 var _owned: Dictionary = {}
@@ -225,14 +231,26 @@ func is_purchased(product_id: String) -> bool:
 
 
 func can_purchase(product_id: String) -> bool:
+	return unavailable_reason(product_id).is_empty()
+
+
+## Pourquoi un produit ne peut pas être acheté. Vide = achetable.
+##
+## « Déjà possédé ou indisponible » disait FAUX pour un consommable : sur les
+## sept produits du catalogue, « Supprimer les pubs » est le seul non
+## consommable. Et le plafond de 3 sur « Surcharge » étant inatteignable (voir
+## `_active_boost_count()`), le mensonge n'était pas encore visible. Rendre le
+## plafond atteignable l'aurait rendu visible à tous les joueurs qui
+## cumulaient trois fois — il fallait donc un message exact au même moment.
+func unavailable_reason(product_id: String) -> String:
 	var p := get_product(product_id)
 	if p.is_empty():
-		return false
+		return "produit inconnu"
 	if not is_consumable(product_id) and is_purchased(product_id):
-		return false
-	if product_id == "boost_production" and _active_boost_count() >= 3:
-		return false
-	return true
+		return "déjà acheté"
+	if product_id == BOOST_PRODUCT and _active_boost_count() >= BOOST_STACK_LIMIT:
+		return "surcharge déjà cumulée %d fois" % BOOST_STACK_LIMIT
+	return ""
 
 
 ## Point d'entrée de l'UI : demande un achat, sans rien acheter.
@@ -245,12 +263,12 @@ func can_purchase(product_id: String) -> bool:
 ## directement sur `IdleStore.purchase()` et la feuille de paiement s'ouvrait
 ## au premier tap, sans nom de produit, sans prix affiché, sans bouton
 ## « Annuler », sans « le jeu reste entièrement jouable et gratuit ». La
-## confirmation que ce fichier déclare en « ligne rouge assumée » (ligne 8-12)
-## était du code mort de 21 lignes hors simulation. `tests/test_plugin_contract.gd`
+## confirmation que l'en-tête de ce fichier déclare en « ligne rouge assumée » était
+## du code mort de 21 lignes hors simulation. `tests/test_plugin_contract.gd`
 ## affirmait ce comportement comme correct, donc les tests passaient dessus.
 func request_purchase(product_id: String) -> void:
 	if not can_purchase(product_id):
-		purchase_failed.emit(product_id, "déjà possédé ou indisponible")
+		purchase_failed.emit(product_id, unavailable_reason(product_id))
 		return
 	purchase_requested.emit(product_id)
 
@@ -262,7 +280,7 @@ func request_purchase(product_id: String) -> void:
 ## passage obligatoire, et non une coïncidence de la branche mock.
 func submit_purchase(product_id: String) -> void:
 	if not can_purchase(product_id):
-		purchase_failed.emit(product_id, "déjà possédé ou indisponible")
+		purchase_failed.emit(product_id, unavailable_reason(product_id))
 		return
 	if mock or _plugin == null:
 		_grant(product_id)
@@ -279,7 +297,7 @@ func submit_purchase(product_id: String) -> void:
 ## révision d'App Store refuse.
 func complete_mock_purchase(product_id: String) -> void:
 	if not can_purchase(product_id):
-		purchase_failed.emit(product_id, "déjà possédé ou indisponible")
+		purchase_failed.emit(product_id, unavailable_reason(product_id))
 		return
 	_grant(product_id)
 	purchase_completed.emit(product_id)
@@ -311,17 +329,19 @@ func _grant(product_id: String) -> void:
 		game.call("grant_store_product", product_id)
 
 
+## Nombre de surcharges actives, et non une estimation.
+##
+## L'ancien code déduisait le compte du temps restant : « au-delà de ~5 h
+## restantes, le joueur en a 3 », sinon 2. Or un seul achat de 2 h suffisait à
+## retomber sous les 5 h, donc la valeur rendue était 2 — toujours en dessous
+## du seuil de 3, et `can_purchase()` ne refusait jamais rien. Le plafond
+## n'existait pas. `GameManager.boost_stacks` compte réellement les
+## applications, et se remet à zéro à l'expiration de la fenêtre.
 func _active_boost_count() -> int:
 	var game: Variant = _game()
 	if game == null:
 		return 0
-	# On approxime par le temps de surcharge restant : chaque achat ajoute
-	# boost_hours, on considère qu'au-delà de ~5 h restantes le joueur en a 3.
-	var ends: float = float(game.get("boost_ends_at"))
-	var now := Time.get_unix_time_from_system()
-	if ends <= now:
-		return 0
-	return 3 if ends - now > 5.0 * 3600.0 else 2
+	return int(game.get("boost_stacks"))
 
 
 func _game() -> Variant:
