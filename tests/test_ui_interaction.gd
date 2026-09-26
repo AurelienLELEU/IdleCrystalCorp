@@ -73,6 +73,7 @@ func _run() -> void:
 	await _test_store_confirmation()
 	await _test_restore_button()
 	await _test_settings_toggles()
+	await _test_ad_failure_single_toast()
 	await _test_hard_reset_from_ui()
 	await _test_responsive_layout()
 
@@ -411,6 +412,23 @@ func _test_settings_toggles() -> void:
 		"réglages : daily_bonus_changed réactive le bouton sans quitter la page")
 	_check(_toast_count() - toasts_before == 1,
 		"bonus quotidien : un seul toast annonce sa disponibilité")
+
+
+func _test_ad_failure_single_toast() -> void:
+	var ads: Variant = root.get_node_or_null("Ads")
+	_check(ads != null, "pub : autoload Ads présent")
+	if ads == null:
+		return
+	var game_messages: Array = []
+	var on_message := func(_text: String, _kind: String) -> void:
+		game_messages.append(true)
+	_game.message.connect(on_message)
+	var toasts_before := _toast_count()
+	ads.call("_on_plugin_failed", "production_boost", "réseau indisponible")
+	await process_frame
+	_game.message.disconnect(on_message)
+	_check(_toast_count() - toasts_before == 1 and game_messages.is_empty(),
+		"pub : l'échec natif produit un seul toast, pas un double canal")
 
 
 ## Le bouton « Restaurer mes achats » doit exister ET déclencher la

@@ -69,11 +69,11 @@ func _connect_plugin() -> void:
 
 func _on_plugin_failed(reward_id: String, reason: String) -> void:
 	abort(reward_id, reason if not reason.is_empty() else "pub indisponible")
-	# Une pub indisponible est normale : on l'annonce discrètement, sans message
-	# d'erreur en rouge qui ferait croire à un bug. Le joueur garde son gain
-	# hors-ligne, il perd simplement l'accélérateur — ce qui est la seule
-	# sanction acceptable quand on a promis qu'aucun achat ni pub n'est requis.
-	GameManager.notify("Publicité indisponible. Récompense non délivrée.", "warn")
+	# `ad_failed` est déjà affiché par MainUI. Ne pas appeler également
+	# `GameManager.notify()` ici : MainUI écoute aussi `GameManager.message`, ce qui
+	# affichait deux toasts pour un seul échec SDK. Une pub indisponible est
+	# normale; le joueur garde son gain hors-ligne et perd seulement
+	# l'accélérateur, sans toast rouge.
 
 
 ## Passe les identifiants AdMob au SDK. Sans effet en mode simulation.
