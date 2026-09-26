@@ -1,0 +1,215 @@
+{
+  "schema_version": 2,
+  "game_title": "Idle Crystal Corp",
+  "tagline": "Creuse la profondeur. Domine le temps.",
+  "resource_name": "Cristaux",
+  "resource_icon": "💎",
+  "prestige_name": "Éclats d'Éternité",
+  "prestige_icon": "🌀",
+  "base_production_per_sec": 1.0,
+  "start_resources": 0.0,
+  "start_click_power": 1.0,
+  "autosave_interval": 20.0,
+
+  "offline": {
+	"base_hours": 2.0,
+	"hours_per_research_level": 2.0,
+	"min_popup_seconds": 60.0,
+	"notify_after_hours": 2.0
+  },
+
+  "combo": {
+	"base_window": 1.2,
+	"max_stacks": 25,
+	"power_per_stack": 0.04,
+	"window_per_research_level": 1.0
+  },
+
+  "prestige": {
+	"min_run_earnings": 1e9,
+	"exponent": 0.5,
+	"divisor": 1000.0,
+	"mult_per_point": 0.01,
+	"reset_research": true,
+	"keep_click_upgrades": false
+  },
+
+  "ads": {
+	"enabled": true,
+	"mock": true,
+	"duration_seconds": 5.0,
+	"daily_cap_production_boost": 3,
+	"daily_cap_offline_double": 1,
+	"daily_cap_free_crystals": 5
+  },
+
+  "store": {
+	"mock": true,
+	"products": [
+	  {
+		"id": "supprimer_pubs",
+		"name": "Supprimer les pubs",
+		"description": "Plus aucune pub récompensée, définitivement. Toutes les autres récompenses restent actives.",
+		"price": "3,99 €",
+		"product_id": "com.aurelien.idlegame.noads",
+		"type": "entitlement",
+		"grant": { "no_ads": true }
+	  },
+	  {
+		"id": "pack_decouverte",
+		"name": "Pack Découverte",
+		"description": "1 000 000 de cristaux et 2 h de production accélérée immédiatement.",
+		"price": "1,99 €",
+		"product_id": "com.aurelien.idlegame.pack.decouverte",
+		"type": "consumable",
+		"badge": "Une seule fois",
+		"grant": { "resources": 1e6, "instant_hours": 2.0, "instant_multiplier": 10.0 }
+	  },
+	  {
+		"id": "pack_cristaux_1",
+		"name": "Filon",
+		"description": "1 milliard de cristaux.",
+		"price": "4,99 €",
+		"product_id": "com.aurelien.idlegame.pack.t1",
+		"type": "consumable",
+		"grant": { "resources": 1e9 }
+	  },
+	  {
+		"id": "pack_cristaux_2",
+		"name": "Gisement",
+		"description": "1 000 milliards de cristaux.",
+		"price": "9,99 €",
+		"product_id": "com.aurelien.idlegame.pack.t2",
+		"type": "consumable",
+		"grant": { "resources": 1e12 }
+	  },
+	  {
+		"id": "pack_cristaux_3",
+		"name": "Dôme",
+		"description": "10 millions de milliards de cristaux.",
+		"price": "19,99 €",
+		"product_id": "com.aurelien.idlegame.pack.t3",
+		"type": "consumable",
+		"grant": { "resources": 1e16 }
+	  },
+	  {
+		"id": "pack_cristaux_4",
+		"name": "Éther",
+		"description": "1 milliard de milliards de milliards de cristaux.",
+		"price": "49,99 €",
+		"product_id": "com.aurelien.idlegame.pack.t4",
+		"type": "consumable",
+		"grant": { "resources": 1e22 }
+	  },
+	  {
+		"id": "boost_production",
+		"name": "Surcharge",
+		"description": "Production ×10 pendant 2 heures. Cumuleable jusqu'à 3 fois.",
+		"price": "1,99 €",
+		"product_id": "com.aurelien.idlegame.boost.production",
+		"type": "consumable",
+		"grant": { "boost_hours": 2.0, "boost_multiplier": 10.0 }
+	  }
+	]
+  },
+
+  "buildings": [
+	{ "id": "b1", "name": "Pioche automatique", "desc": "Un bras mécanique qui creuse sans dormir.", "icon": "⛏️", "base_cost": 15.0, "cost_multiplier": 1.07, "production_per_sec": 0.5, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b2", "name": "Foreuse basique", "desc": "Premier forage vertical de l'histoire de la société.", "icon": "🛠️", "base_cost": 100.0, "cost_multiplier": 1.08, "production_per_sec": 4.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b3", "name": "Laser de surface", "desc": "La roche fond plus vite qu'elle ne se forme.", "icon": "🔺", "base_cost": 1100.0, "cost_multiplier": 1.09, "production_per_sec": 32.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b4", "name": "Sonde minière", "desc": "Elle cherche le filon tout seule.", "icon": "📡", "base_cost": 14000.0, "cost_multiplier": 1.10, "production_per_sec": 260.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b5", "name": "Extracteur magmatique", "desc": "Le magma Cristallisé vaut mille fois le minerai.", "icon": "🌋", "base_cost": 90000.0, "cost_multiplier": 1.10, "production_per_sec": 1400.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b6", "name": "Plateforme orbitale", "desc": "Plus d'atmosphère, plus de rendement.", "icon": "🛰️", "base_cost": 400000.0, "cost_multiplier": 1.11, "production_per_sec": 7800.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b7", "name": "Colonie lunaire", "desc": "Le régolithe lunaire est presque du cristal pur.", "icon": "🌕", "base_cost": 2300000.0, "cost_multiplier": 1.12, "production_per_sec": 44000.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b8", "name": "Accélérateur quantique", "desc": "On ne creuse plus la roche : on creuse la probabilité.", "icon": "⚛️", "base_cost": 15000000.0, "cost_multiplier": 1.13, "production_per_sec": 260000.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b9", "name": "Annihilateur de matière", "desc": "Le vide a un prix, et ce prix est en cristaux.", "icon": "🕳️", "base_cost": 100000000.0, "cost_multiplier": 1.14, "production_per_sec": 1600000.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+	{ "id": "b10", "name": "Singularité temporelle", "desc": "Elle produit plus que l'ensemble du temps écoulé.", "icon": "🌀", "base_cost": 800000000.0, "cost_multiplier": 1.15, "production_per_sec": 10000000.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
+
+	{ "id": "b11", "name": "Filon quantique", "desc": "Un filon qui n'existe que lorsque personne ne le regarde.", "icon": "🔷", "base_cost": 800000000000.0, "cost_multiplier": 1.15, "production_per_sec": 1000000000.0, "unlock_prestige": 1, "milestone_every": 10, "milestone_mult": 2.5 },
+	{ "id": "b12", "name": "Chronofore", "desc": "Elle extrait le cristal de demain.", "icon": "⏳", "base_cost": 12000000000000.0, "cost_multiplier": 1.15, "production_per_sec": 8000000000.0, "unlock_prestige": 1, "milestone_every": 10, "milestone_mult": 2.5 },
+	{ "id": "b13", "name": "Cage d'antimatière", "desc": "Containée, donc rentable.", "icon": "⚗️", "base_cost": 160000000000000.0, "cost_multiplier": 1.16, "production_per_sec": 64000000000.0, "unlock_prestige": 1, "milestone_every": 10, "milestone_mult": 2.5 },
+	{ "id": "b14", "name": "Simulateur d'univers", "desc": "Un univers à part entière, en location.", "icon": "🌌", "base_cost": 2200000000000000.0, "cost_multiplier": 1.16, "production_per_sec": 500000000000.0, "unlock_prestige": 1, "milestone_every": 10, "milestone_mult": 2.5 },
+	{ "id": "b15", "name": "Éponge à realtés", "desc": "Elle boit les univers qui ont échoué.", "icon": "🕸️", "base_cost": 30000000000000000.0, "cost_multiplier": 1.17, "production_per_sec": 4000000000000.0, "unlock_prestige": 1, "milestone_every": 10, "milestone_mult": 2.5 },
+
+	{ "id": "b16", "name": "Foyer de singularité", "desc": "La singularité n'est plus une menace, c'est un outillage.", "icon": "🔆", "base_cost": 30000000000000000000000.0, "cost_multiplier": 1.17, "production_per_sec": 400000000000000.0, "unlock_prestige": 2, "milestone_every": 10, "milestone_mult": 3.0 },
+	{ "id": "b17", "name": "Tisserand d'espace-temps", "desc": "Il tricote les lignes temporelles comme un lainier.", "icon": "🧵", "base_cost": 400000000000000000000000.0, "cost_multiplier": 1.18, "production_per_sec": 3200000000000000.0, "unlock_prestige": 2, "milestone_every": 10, "milestone_mult": 3.0 },
+	{ "id": "b18", "name": "Forge de mondes", "desc": "Elle bat des planètes comme on bat des œufs.", "icon": "🥚", "base_cost": 6000000000000000000000000.0, "cost_multiplier": 1.18, "production_per_sec": 25000000000000000.0, "unlock_prestige": 2, "milestone_every": 10, "milestone_mult": 3.0 },
+	{ "id": "b19", "name": "Bibliothèque infinie", "desc": "Chaque cristal y est archivé. Chaque archive rapporte.", "icon": "📚", "base_cost": 80000000000000000000000000.0, "cost_multiplier": 1.19, "production_per_sec": 200000000000000000.0, "unlock_prestige": 2, "milestone_every": 10, "milestone_mult": 3.0 },
+	{ "id": "b20", "name": "Le Vide Affamé", "desc": "Ne lui donnez pas de cristaux. Il en prend.", "icon": "👁️", "base_cost": 100000000000000000000000000.0, "cost_multiplier": 1.19, "production_per_sec": 1600000000000000000.0, "unlock_prestige": 2, "milestone_every": 10, "milestone_mult": 3.0 }
+  ],
+
+  "click_upgrades": [
+	{ "id": "c1", "name": "Pioche en acier", "desc": "+1 par clic", "icon": "🔨", "base_cost": 25.0, "cost_multiplier": 1.30, "power_bonus": 1.0, "max_level": 50 },
+	{ "id": "c2", "name": "Laser haute fréquence", "desc": "+5 par clic", "icon": "⚡", "base_cost": 250.0, "cost_multiplier": 1.35, "power_bonus": 5.0, "max_level": 40 },
+	{ "id": "c3", "name": "Gant pneumatique", "desc": "+25 par clic", "icon": "🧤", "base_cost": 2000.0, "cost_multiplier": 1.40, "power_bonus": 25.0, "max_level": 30 },
+	{ "id": "c4", "name": "Surchauffe quantique", "desc": "+100 par clic", "icon": "🔥", "base_cost": 18000.0, "cost_multiplier": 1.45, "power_bonus": 100.0, "max_level": 20 },
+	{ "id": "c5", "name": "Doigt de diamant", "desc": "+500 par clic", "icon": "💎", "base_cost": 200000.0, "cost_multiplier": 1.50, "power_bonus": 500.0, "max_level": 20 },
+	{ "id": "c6", "name": "Main robotique", "desc": "+2 500 par clic", "icon": "🦾", "base_cost": 20000000.0, "cost_multiplier": 1.55, "power_bonus": 2500.0, "max_level": 18 },
+	{ "id": "c7", "name": "Interface neurale", "desc": "+15 000 par clic", "icon": "🧠", "base_cost": 2000000000.0, "cost_multiplier": 1.60, "power_bonus": 15000.0, "max_level": 15 },
+	{ "id": "c8", "name": "Bouton quantique", "desc": "+100 000 par clic", "icon": "🔘", "base_cost": 200000000000.0, "cost_multiplier": 1.65, "power_bonus": 100000.0, "max_level": 12 },
+	{ "id": "c9", "name": "Distorsion du doigt", "desc": "+1 000 000 par clic", "icon": "🖖", "base_cost": 20000000000000.0, "cost_multiplier": 1.70, "power_bonus": 1000000.0, "max_level": 10 },
+	{ "id": "c10", "name": "Main omnisciente", "desc": "+10 000 000 par clic", "icon": "🌟", "base_cost": 2000000000000000.0, "cost_multiplier": 1.75, "power_bonus": 10000000.0, "max_level": 8 }
+  ],
+
+  "research_techs": [
+	{ "id": "r1", "name": "Optimisation des flux", "desc": "Production ×2 par niveau.", "icon": "🔧", "category": "production", "base_cost": 500.0, "cost_multiplier": 12.0, "max_level": 5, "effect_type": "production_mult", "effect_value": 2.0 },
+	{ "id": "r2", "name": "Alliages de nanorubes", "desc": "Production ×3 par niveau.", "icon": "🧪", "category": "production", "base_cost": 5000.0, "cost_multiplier": 20.0, "max_level": 4, "effect_type": "production_mult", "effect_value": 3.0, "requires": ["r1"] },
+	{ "id": "r3", "name": "Matrice supraconductrice", "desc": "Production ×5 par niveau.", "icon": "⚡", "category": "production", "base_cost": 50000.0, "cost_multiplier": 30.0, "max_level": 3, "effect_type": "production_mult", "effect_value": 5.0, "requires": ["r2"] },
+	{ "id": "r4", "name": "Singularité contrôlée", "desc": "Production ×10 par niveau.", "icon": "🌀", "category": "production", "base_cost": 1000000.0, "cost_multiplier": 100.0, "max_level": 2, "effect_type": "production_mult", "effect_value": 10.0, "requires": ["r3"] },
+	{ "id": "r5", "name": "Raffinage isotopique", "desc": "Production ×25 par niveau.", "icon": "☢️", "category": "production", "base_cost": 100000000.0, "cost_multiplier": 300.0, "max_level": 2, "effect_type": "production_mult", "effect_value": 25.0, "requires": ["r4"] },
+	{ "id": "r6", "name": "Compression dimensionnelle", "desc": "Production ×100.", "icon": "📦", "category": "production", "base_cost": 100000000000.0, "cost_multiplier": 1.0, "max_level": 1, "effect_type": "production_mult", "effect_value": 100.0, "requires": ["r5"] },
+	{ "id": "r7", "name": "Forge quantique", "desc": "Production ×1 000.", "icon": "🏭", "category": "production", "base_cost": 100000000000000.0, "cost_multiplier": 1.0, "max_level": 1, "effect_type": "production_mult", "effect_value": 1000.0, "requires": ["r6"] },
+	{ "id": "r8", "name": "Cœur de singularité", "desc": "Production ×10 000.", "icon": "🧿", "category": "production", "base_cost": 1000000000000000000.0, "cost_multiplier": 1.0, "max_level": 1, "effect_type": "production_mult", "effect_value": 10000.0, "requires": ["r7"], "unlock_prestige": 1 },
+	{ "id": "r9", "name": "Chrono-amplificateur", "desc": "Production ×1 000 000.", "icon": "⌛", "category": "production", "base_cost": 100000000000000000000000.0, "cost_multiplier": 1.0, "max_level": 1, "effect_type": "production_mult", "effect_value": 1000000.0, "requires": ["r8"], "unlock_prestige": 2 },
+
+	{ "id": "r10", "name": "Réflexes augmentés", "desc": "Puissance de clic ×2 par niveau.", "icon": "🦾", "category": "clic", "base_cost": 1000.0, "cost_multiplier": 15.0, "max_level": 8, "effect_type": "click_mult", "effect_value": 2.0 },
+	{ "id": "r11", "name": "Synchronisation motrice", "desc": "Puissance de clic ×3 par niveau.", "icon": "🕺", "category": "clic", "base_cost": 100000.0, "cost_multiplier": 25.0, "max_level": 6, "effect_type": "click_mult", "effect_value": 3.0, "requires": ["r10"] },
+	{ "id": "r12", "name": "Poigne de titane", "desc": "Puissance de clic ×10 par niveau.", "icon": "✊", "category": "clic", "base_cost": 100000000.0, "cost_multiplier": 50.0, "max_level": 4, "effect_type": "click_mult", "effect_value": 10.0, "requires": ["r11"] },
+	{ "id": "r13", "name": "Bras cybernétiques", "desc": "Puissance de clic ×50 par niveau.", "icon": "🤖", "category": "clic", "base_cost": 1000000000000.0, "cost_multiplier": 1.0, "max_level": 2, "effect_type": "click_mult", "effect_value": 50.0, "requires": ["r12"], "unlock_prestige": 1 },
+
+	{ "id": "r14", "name": "Serveurs de sauvegarde", "desc": "Gains hors-ligne ×2 par niveau (2 h de plus à chaque fois).", "icon": "🗄️", "category": "utilitaire", "base_cost": 10000.0, "cost_multiplier": 10.0, "max_level": 5, "effect_type": "offline_hours", "effect_value": 2.0 },
+	{ "id": "r15", "name": "Compression des données", "desc": "Coût des bâtiments ×0,92 par niveau.", "icon": "🗜️", "category": "utilitaire", "base_cost": 500000.0, "cost_multiplier": 12.0, "max_level": 5, "effect_type": "cost_reduction", "effect_value": 0.92 },
+	{ "id": "r16", "name": "Mémoire de l'ascension", "desc": "+25 % d'Éclats d'Éternité par niveau.", "icon": "🧿", "category": "utilitaire", "base_cost": 1000000000.0, "cost_multiplier": 40.0, "max_level": 4, "effect_type": "prestige_bonus", "effect_value": 0.25 },
+	{ "id": "r17", "name": "Fenêtre de combo", "desc": "+1 s pour maintenir le combo par niveau.", "icon": "⏱️", "category": "utilitaire", "base_cost": 1000000.0, "cost_multiplier": 20.0, "max_level": 3, "effect_type": "combo_window", "effect_value": 1.0 }
+  ],
+
+  "achievements": [
+	{ "id": "a1", "name": "Premiers cristaux", "desc": "Gagne 100 cristaux au total.", "icon": "🔹", "type": "lifetime", "threshold": 100, "reward_type": "resources", "reward_value": 500 },
+	{ "id": "a2", "name": "Cristallier", "desc": "Gagne 10 000 cristaux au total.", "icon": "🔷", "type": "lifetime", "threshold": 10000, "reward_type": "resources", "reward_value": 5000 },
+	{ "id": "a3", "name": "Mine rentable", "desc": "Gagne 1 million de cristaux au total.", "icon": "💠", "type": "lifetime", "threshold": 1000000, "reward_type": "production_mult", "reward_value": 1.5 },
+	{ "id": "a4", "name": "Consortium", "desc": "Gagne 1 milliard de cristaux au total.", "icon": "🏢", "type": "lifetime", "threshold": 1000000000, "reward_type": "production_mult", "reward_value": 2.0 },
+	{ "id": "a5", "name": "Empire", "desc": "Gagne 1 000 milliards de cristaux au total.", "icon": "🌆", "type": "lifetime", "threshold": 1000000000000, "reward_type": "production_mult", "reward_value": 3.0 },
+	{ "id": "a6", "name": "Trilogie", "desc": "Gagne 10^18 cristaux au total.", "icon": "🛰️", "type": "lifetime", "threshold": 1e18, "reward_type": "production_mult", "reward_value": 5.0 },
+	{ "id": "a7", "name": "Quatuor", "desc": "Gagne 10^24 cristaux au total.", "icon": "🌌", "type": "lifetime", "threshold": 1e24, "reward_type": "production_mult", "reward_value": 10.0 },
+	{ "id": "a8", "name": "Quintette", "desc": "Gagne 10^33 cristaux au total.", "icon": "🌌", "type": "lifetime", "threshold": 1e33, "reward_type": "production_mult", "reward_value": 25.0 },
+	{ "id": "a9", "name": "Légende", "desc": "Gagne 10^50 cristaux au total.", "icon": "👑", "type": "lifetime", "threshold": 1e50, "reward_type": "production_mult", "reward_value": 100.0 },
+	{ "id": "a10", "name": "Cosmologie", "desc": "Gagne 10^80 cristaux au total.", "icon": "🪐", "type": "lifetime", "threshold": 1e80, "reward_type": "prestige_points", "reward_value": 1 },
+
+	{ "id": "a11", "name": "Bricoleur", "desc": "Possède 10 bâtiments au total.", "icon": "🔧", "type": "buildings_total", "threshold": 10, "reward_type": "resources", "reward_value": 1000 },
+	{ "id": "a12", "name": "Architecte", "desc": "Possède 50 bâtiments au total.", "icon": "📐", "type": "buildings_total", "threshold": 50, "reward_type": "click_power", "reward_value": 100 },
+	{ "id": "a13", "name": "Entrepreneur", "desc": "Possède 150 bâtiments au total.", "icon": "💼", "type": "buildings_total", "threshold": 150, "reward_type": "production_mult", "reward_value": 2.0 },
+	{ "id": "a14", "name": "Magnat", "desc": "Possède 400 bâtiments au total.", "icon": "🏦", "type": "buildings_total", "threshold": 400, "reward_type": "production_mult", "reward_value": 4.0 },
+	{ "id": "a15", "name": "Visionnaire", "desc": "Possède 1 000 bâtiments au total.", "icon": "🔭", "type": "buildings_total", "threshold": 1000, "reward_type": "production_mult", "reward_value": 8.0 },
+	{ "id": "a16", "name": "Titan", "desc": "Possède 2 500 bâtiments au total.", "icon": "🗿", "type": "buildings_total", "threshold": 2500, "reward_type": "prestige_points", "reward_value": 2 },
+
+	{ "id": "a17", "name": "Premier clic", "desc": "Récupère des cristaux 1 fois.", "icon": "👆", "type": "clicks", "threshold": 1, "reward_type": "click_power", "reward_value": 10 },
+	{ "id": "a18", "name": "Réflexes", "desc": "Récupère des cristaux 100 fois.", "icon": "💨", "type": "clicks", "threshold": 100, "reward_type": "click_power", "reward_value": 500 },
+	{ "id": "a19", "name": "Marathonien", "desc": "Récupère des cristaux 1 000 fois.", "icon": "🏃", "type": "clicks", "threshold": 1000, "reward_type": "click_power", "reward_value": 5000 },
+	{ "id": "a20", "name": "Légende du clic", "desc": "Récupère des cristaux 10 000 fois.", "icon": "🖱️", "type": "clicks", "threshold": 10000, "reward_type": "production_mult", "reward_value": 5.0 },
+
+	{ "id": "a21", "name": "Première ascension", "desc": "Ascende 1 fois.", "icon": "🌀", "type": "prestige", "threshold": 1, "reward_type": "prestige_points", "reward_value": 1 },
+	{ "id": "a22", "name": "Ascensions multiples", "desc": "Ascende 5 fois.", "icon": "🌀", "type": "prestige", "threshold": 5, "reward_type": "production_mult", "reward_value": 15.0 },
+	{ "id": "a23", "name": "Transcendance", "desc": "Ascende 20 fois.", "icon": "✨", "type": "prestige", "threshold": 20, "reward_type": "prestige_points", "reward_value": 5 },
+
+	{ "id": "a24", "name": "Chercheur", "desc": "Achète 5 niveaux de recherche.", "icon": "📚", "type": "research_levels", "threshold": 5, "reward_type": "production_mult", "reward_value": 1.5 },
+	{ "id": "a25", "name": "Génie", "desc": "Achète 20 niveaux de recherche.", "icon": "🎓", "type": "research_levels", "threshold": 20, "reward_type": "production_mult", "reward_value": 3.0 },
+	{ "id": "a26", "name": "Savant", "desc": "Achète 50 niveaux de recherche.", "icon": "🔬", "type": "research_levels", "threshold": 50, "reward_type": "production_mult", "reward_value": 6.0 },
+
+	{ "id": "a27", "name": "Maître de la profondeur", "desc": "Possède 25 Extracteurs magmatiques.", "icon": "🌋", "type": "building", "target": "b5", "threshold": 25, "reward_type": "production_mult", "reward_value": 2.0 },
+	{ "id": "a28", "name": "Marchand de singularité", "desc": "Possède 25 Accélérateurs quantiques.", "icon": "⚛️", "type": "building", "target": "b8", "threshold": 25, "reward_type": "production_mult", "reward_value": 5.0 },
+	{ "id": "a29", "name": "Maître du temps", "desc": "Possède 50 Singularités temporelles.", "icon": "🌀", "type": "building", "target": "b10", "threshold": 50, "reward_type": "production_mult", "reward_value": 10.0 },
+
+	{ "id": "a30", "name": "En rythme", "desc": "Atteins un combo de 10.", "icon": "🎵", "type": "combo", "threshold": 10, "reward_type": "click_power", "reward_value": 1000 },
+	{ "id": "a31", "name": "Main d'acier", "desc": "Atteins un combo de 25.", "icon": "🎸", "type": "combo", "threshold": 25, "reward_type": "production_mult", "reward_value": 4.0 }
+  ]
+}

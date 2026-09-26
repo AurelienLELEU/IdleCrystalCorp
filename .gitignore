@@ -1,0 +1,46 @@
+# Godot
+.godot/
+# Dossiers d'export mobiles générés par l'éditeur
+/android/
+/ios/
+/macos/
+/windows/
+# Dossiers de construction que j'ajoute explicitement
+/build/
+/export/
+/exported/
+
+# Projets exportés
+*.ipa
+*.apk
+*.aab
+*.aar
+*.zip
+*.pck
+*.xcodeproj
+*.xcworkspace
+*.xcuserdatad
+*.xcuserstate
+
+# Sauvegardes de dépendances
+export_credentials.cfg
+
+# Certificats et signatures : ne doivent JAMAIS être versionnés
+*.p12
+*.mobileprovision
+*.keystore
+*.jks
+*.cer
+*.certSigningRequest
+*.p8
+
+# Systèmes et éditeurs
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+*.tmp

@@ -1,0 +1,50 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="Idle Crystal Corp"
+config/description="Modèle de jeu idle pour mobile : production automatique, ascension, gains hors-ligne, succès. 100 % jouable gratuitement."
+run/main_scene="uid://capq2y3nvisck"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+config/icon="res://icon.png"
+config/version="1.0.0"
+boot_splash/bg_color=Color(0.027, 0.024, 0.059, 1)
+boot_splash/show_image=true
+boot_splash/image="res://assets/splash.png"
+
+; Ordre important : GameManager interroge Notifications, Ads et Audio, il doit
+; donc être instancié en dernier.
+[autoload]
+
+Ads="*res://core_engine/AdService.gd"
+Store="*res://core_engine/StoreService.gd"
+Notifications="*res://core_engine/NotificationService.gd"
+Audio="*res://core_engine/AudioManager.gd"
+GameManager="*res://core_engine/GameManager.gd"
+
+[display]
+
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

@@ -1,0 +1,102 @@
+[gd_scene load_steps=2 format=3 uid="uid://capq2y3nvisck"]
+
+[ext_resource type="Script" uid="uid://cxy76uwjrlkhe" path="res://scenes/MainUI.gd" id="1_mainui"]
+
+[node name="MainUI" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_mainui")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.050980393, 0.043137256, 0.10196079, 1)
+
+[node name="Root" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="Layout" type="VBoxContainer" parent="Root"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TopBar" type="HBoxContainer" parent="Root/Layout"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TitleLabel" type="Label" parent="Root/Layout"]
+layout_mode = 2
+text = "Idle Crystal Corp"
+horizontal_alignment = 1
+
+[node name="ResourcePanel" type="PanelContainer" parent="Root/Layout"]
+layout_mode = 2
+
+[node name="ResourceBox" type="VBoxContainer" parent="Root/Layout/ResourcePanel"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="ResourceLabel" type="Label" parent="Root/Layout/ResourcePanel/ResourceBox"]
+layout_mode = 2
+text = "0"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 34
+
+[node name="RateLabel" type="Label" parent="Root/Layout/ResourcePanel/ResourceBox"]
+layout_mode = 2
+text = "0 /s"
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.560784314, 0.537254902, 0.678431373, 1)
+theme_override_font_sizes/font_size = 15
+
+[node name="BonusBar" type="ProgressBar" parent="Root/Layout/ResourcePanel/ResourceBox"]
+visible = false
+layout_mode = 2
+custom_minimum_size = Vector2(0, 8)
+show_percentage = false
+
+[node name="Pages" type="MarginContainer" parent="Root/Layout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_top = 4
+
+[node name="PageHost" type="Control" parent="Root/Layout/Pages"]
+clip_contents = true
+layout_mode = 2
+
+[node name="BottomBar" type="HBoxContainer" parent="Root/Layout"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 66)
+theme_override_constants/separation = 5
+
+[node name="ToastLayer" type="CanvasLayer" parent="."]
+layer = 50
+
+[node name="FloatingLayer" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="OverlayLayer" type="CanvasLayer" parent="."]
+layer = 100
