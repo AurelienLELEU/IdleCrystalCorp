@@ -27,6 +27,7 @@ const BOOST_AD_MULTIPLIER := 10.0
 const BOOST_AD_MINUTES := 30.0
 const FREE_CRYSTALS_AD_SECONDS := 300.0
 
+@onready var _root_margin: MarginContainer = $Root
 @onready var _title_label: Label = $Root/Layout/TitleLabel
 @onready var _resource_label: Label = $Root/Layout/ResourcePanel/ResourceBox/ResourceLabel
 @onready var _rate_label: Label = $Root/Layout/ResourcePanel/ResourceBox/RateLabel
@@ -61,6 +62,12 @@ class Row extends RefCounted:
 
 func _ready() -> void:
 	theme = UITheme.build()
+
+	# Les marges de la scène (12/10) sont un plancher de mise en page ; la zone
+	# sûre s'y ajoute. Sans cela, le compteur et le bouton de récolte passent
+	# sous l'encoche et sous l'indicateur d'accueil : le joueur ne voit plus son
+	# score, et le bouton le plus important de l'app devient inatteignable.
+	SafeArea.bind(_root_margin)
 
 	_build_pages()
 	_build_top_bar()
@@ -112,7 +119,9 @@ func _build_pages() -> void:
 			PAGE_ACHIEVEMENTS, PAGE_STORE, PAGE_SETTINGS]:
 		var scroll := ScrollContainer.new()
 		scroll.name = "Page_%s" % page_name
-		scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+		# ..._and_offsets_ : sans cela la page garde la taille qu'elle avait,
+		# soit zéro, et le ScrollContainer n'affiche rien.
+		scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		scroll.visible = false
 		_page_host.add_child(scroll)

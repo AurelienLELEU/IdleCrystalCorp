@@ -55,7 +55,7 @@ dernier.
 
 ## Tests
 
-365 vérifications, 6 contrôles, tous en headless :
+429 vérifications, 7 contrôles, tous en headless :
 
 ```bash
 ./tests/run_all.sh                       # tout
@@ -70,6 +70,7 @@ python3 tests/check_native_contract.py   # le contrôle hors Godot
 | `test_ui_compile.gd` | Instanciation réelle de `Main.tscn`, intégrité des 7 pages |
 | `test_ui_interaction.gd` | Navigation, récolte, achats, popup hors-ligne, confirmation d'achat, remise à zéro |
 | `test_plugin_contract.gd` | Contrat entre le jeu et les extensions `IdleAds` / `IdleStore`, avec un faux plug-in injecté |
+| `test_safe_area.gd` | Zone sûre, centrage, débordement, et pièges de `set_anchors_preset` |
 | `check_native_contract.py` | Cohérence des frontières C / C++ / Objective-C++ / Swift |
 
 `tests/run.sh` impose un délai maximal d'exécution : si un script ne compile
@@ -648,7 +649,7 @@ Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
 ### Le contrôle final, avant d'envoyer à Apple
 
 ```bash
-./tests/run_all.sh                 # 365 vérifications, 0 échec attendu
+./tests/run_all.sh                 # 429 vérifications, 0 échec attendu
 zsh tools/fix_info_plist.sh        # à exécuter APRÈS chaque export
 ```
 

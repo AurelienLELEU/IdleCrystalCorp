@@ -193,21 +193,24 @@ func _open_mock_overlay() -> void:
 
 func _build_mock_overlay() -> Control:
 	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 
 	var bg := ColorRect.new()
 	bg.color = Color(0.02, 0.02, 0.05, 0.97)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	root.add_child(bg)
 
 	var panel := VBoxContainer.new()
-	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	panel.alignment = BoxContainer.ALIGNMENT_CENTER
 	panel.add_theme_constant_override("separation", 14)
 	panel.offset_left = 24
 	panel.offset_right = -24
-	panel.add_child(bg)
+	# `root.add_child(panel)`, et surtout pas `panel.add_child(bg)` : un nœud ne
+	# peut avoir qu'un seul parent, et Godot le DÉPLACE silencieusement. Le fond
+	# disparaissait donc de la racine et se retrouvait empilé dans le panneau,
+	# au-dessus de son propre contenu.
 	root.add_child(panel)
 
 	var sim_tag := Label.new()
@@ -258,7 +261,13 @@ func _build_mock_overlay() -> Control:
 			reward_btn.text = "🎁 Recevoir la récompense"
 	)
 	root.add_child(ticker)
-	ticker.start()
+	# PAS ICI. Cette fonction renvoie `root` sans l'avoir encore ajouté à
+	# l'arbre, et `Timer.start()` refuse de démarrer hors arbre : « Unable to
+	# start the timer because it's not inside the scene tree ». Le compte à
+	# rebours ne tournait donc jamais, et le bouton « Recevoir la récompense »
+	# restait désactivé pour toujours — la pub simulée bloquait le joueur en plein
+	# développement. Le démarrage attend le premier passage dans l'arbre.
+	root.ready.connect(func() -> void: ticker.start())
 
 	reward_btn.pressed.connect(func() -> void:
 		if not is_instance_valid(root):

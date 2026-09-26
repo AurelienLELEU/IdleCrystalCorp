@@ -9,6 +9,16 @@ const SLIDE := 26.0
 
 static var _stack: Array[Toast] = []
 
+## Distance du haut de la zone sûre, plus le repos de 8 px. Ce n'est pas une
+## constante : c'est l'encoche, la barre d'état et la marge de confort, prises
+## en compte au moment où le toast apparaît. Un repos codé en dur à 8 px placerait
+## le message sous l'encoche, et l'utilisateur le lirait entièrement sans
+## jamais voir la première ligne.
+var _rest_top: float = 8.0
+
+## Position du toast lorsqu'il est hors de l'écran, au-dessus de son repos.
+const HIDDEN_OFFSET := -48.0
+
 
 static func push(parent: CanvasLayer, text: String, kind: String = "info") -> Toast:
 	var toast := Toast.new()
@@ -54,6 +64,7 @@ func _ready() -> void:
 	offset_top = -40
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_rest_top = 8.0 + float(SafeArea.insets_for(get_viewport())["top"])
 	_stack.append(self)
 	_relayout(false)
 	_animate()
@@ -61,10 +72,10 @@ func _ready() -> void:
 
 func _animate() -> void:
 	var tween := create_tween()
-	tween.tween_property(self, "offset_top", 8.0, 0.22)\
+	tween.tween_property(self, "offset_top", _rest_top, 0.22)\
 		.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_interval(VISIBLE_TIME)
-	tween.tween_property(self, "offset_top", -40.0, 0.25)\
+	tween.tween_property(self, "offset_top", _rest_top + HIDDEN_OFFSET, 0.25)\
 		.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tween.tween_callback(_on_gone)
 
@@ -79,7 +90,7 @@ func _on_gone() -> void:
 
 
 func _relayout(animate: bool) -> void:
-	var target := 8.0 + float(_stack.find(self)) * 62.0
+	var target := _rest_top + float(_stack.find(self)) * 62.0
 	if animate:
 		var tween := create_tween()
 		tween.tween_property(self, "offset_top", target, 0.2)\

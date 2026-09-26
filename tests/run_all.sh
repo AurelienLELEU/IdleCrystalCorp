@@ -20,6 +20,7 @@ SUITES=(
 	"test_ui_compile|Construction de la scène principale"
 	"test_ui_interaction|Interaction réelle de l'interface"
 	"test_plugin_contract|Contrat entre le jeu et les extensions natives"
+	"test_safe_area|Zone sûre, centrage et débordement de la popup"
 )
 
 total_fail=0
