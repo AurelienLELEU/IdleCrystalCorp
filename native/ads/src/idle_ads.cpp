@@ -1,6 +1,8 @@
 #include "idle_ads.h"
 #include "idle_ads_ios.h"
 
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/method_bind.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
 using namespace godot;

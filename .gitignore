@@ -32,6 +32,18 @@ native/*/godot-cpp/
 *.gdextension
 *.gdextension.uid
 
+# Résidus de construction SCons. Les .os portent des chemins absolus de cette
+# machine et ne se relient pas ailleurs ; les journaux idem, et ils contiennent
+# les commandes complètes, donc les chemins du SDK.
+# `native/**/` et non `native/*/`: les objets atterrissent dans les
+# sous-dossiers src/ et ios/, un cran plus bas que le répertoire de l'extension.
+native/**/build/
+native/**/.sconsign.dblite
+native/**/.sconsign.py
+native/**/*.os
+native/**/build-*.log
+native/**/*.dSYM/
+
 # Certificats et signatures : ne doivent JAMAIS être versionnés
 *.p12
 *.mobileprovision

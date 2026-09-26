@@ -318,11 +318,175 @@ def _check_dmethods(rep: Report, cpp: str, cls_h: str, label: str) -> None:
                   f"{label} : D_METHOD(\"{method}\") et la méthode {target} diffèrent",
                   "le nom exposé à GDScript ne correspond pas au nom C++")
 
+# --- Le manifeste .gdextension ---------------------------------------------
+#
+# L'entrée [libraries] est le SEUL endroit où Godot apprend où trouver la
+# bibliothèque. Rien ne la vérifie : une entrée fausse produit une extension
+# qui compile, un manifeste qui s'active, et un dlopen qui échoue au lancement
+# — sans que le build ne soit en cause. C'est arrivé ici trois fois de suite
+# (macOS en .framework au lieu de .dylib, le simulateur en « arm64-simulator »
+# au lieu du nom réel, et le dossier de sortie native/bin/ au lieu de
+# native/<ext>/bin/).
+#
+# Plutôt que de comparer le manifeste à ce qui se trouve sur le disque — ce
+# qui ne peut rien dire tant que rien n'a été compilé — on le compare à la RÈGLE
+# qui produit les noms, recopiée depuis godot-cpp/tools/godotcpp.py :
+#
+#     suffixe = ".<plateforme>.<cible>[.dev][.double].<arch>[.simulator][.nothreads]"
+#
+# Vérifier la règle, et non le résultat, attrape l'erreur même sur une machine
+# où l'extension n'a jamais été compilée.
+
+# Étiquettes de plateforme -> (plateforme scons, architecture, simulateur)
+# Le « .simulator » et le suffixe d'arch ne sont PAS les mêmes notions : scons
+# ne connaît ni « arm64-simulator » ni « universal.simulator » comme arch, et
+# l'étiquette du manifeste, elle, emploie bien « arm64-simulator ».
+MANIFEST_TAGS = {
+    "macos.debug": ("macos", "template_debug", "universal", False),
+    "macos.release": ("macos", "template_release", "universal", False),
+    "ios.debug.arm64": ("ios", "template_debug", "arm64", False),
+    "ios.release.arm64": ("ios", "template_release", "arm64", False),
+    "ios.debug.arm64-simulator": ("ios", "template_debug", "universal", True),
+    "ios.release.arm64-simulator": ("ios", "template_release", "universal", True),
+    "ios.debug.x86_64-simulator": ("ios", "template_debug", "universal", True),
+    "ios.release.x86_64-simulator": ("ios", "template_release", "universal", True),
+}
+
+# La valeur est capturée BRUTE, préfixe res:// compris ou non : exiger le
+# préfixe dans la regex reviendrait à ignorer silencieusement l'entrée fautive
+# au lieu de la signaler.
+LIBS_ENTRY = re.compile(r'^(\S+)\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
+
+
+def check_manifest(rep: Report, name: str, lib: str) -> None:
+    dist = ROOT / "native" / name / ("IdleAds.gdextension.dist" if name == "ads"
+                                     else "IdleStore.gdextension.dist")
+    if not dist.exists():
+        rep.check(False, f"{name} : manifeste .dist présent",
+                  f"{dist} introuvable")
+        return
+    text = dist.read_text(encoding="utf-8")
+
+    # Le préfixe res:// est conservé : c'est lui que Godot résout, et le
+    # perdre ferait comparer des chemins différents sans qu'on le voie.
+    entries = {m.group(1): m.group(2) for m in LIBS_ENTRY.finditer(text)}
+    label = f"{name} : manifeste"
+
+    # 1. Les étiquettes couvertes par build.sh, et elles seules.
+    built = set(entries) & set(MANIFEST_TAGS)
+    for tag in sorted(set(MANIFEST_TAGS) - set(entries)):
+        rep.check(False, f"{label} : l'étiquette {tag} est déclarée",
+                  "absente de [libraries] alors que build.sh la produit")
+
+    # 2. Chaque chemin suit la règle de suffixe de godot-cpp.
+    for tag, (platform, target, arch, simulator) in MANIFEST_TAGS.items():
+        path = entries.get(tag)
+        if path is None:
+            continue
+        suffix = f".{platform}.{target}.{arch}" + (".simulator" if simulator else "")
+        expected = f"res://native/{name}/bin/lib{lib}{suffix}.dylib"
+        rep.check(path == expected, f"{label} : {tag} suit la règle de suffixe",
+                  f"attendu {expected}, trouvé {path}")
+        rep.check(path.startswith("res://"),
+                  f"{label} : {tag} est bien une res://",
+                  f"« {path} » ne commence pas par res:// — Godot ne la résout pas")
+
+    # 3. Le manifeste actif, s'il existe, doit être identique au .dist : c'est
+    #    une copie faite par build.sh, et une copie périmée échoue au
+    #    chargement sans que le dépôt ne montre rien.
+    active = dist.with_suffix("")  # enlève .dist
+    if active.exists():
+        rep.check(active.read_text(encoding="utf-8") == text,
+                  f"{label} : le manifeste actif est à jour",
+                  f"{active.name} diffère du .dist — relancez build.sh")
+
+    # 4. Si des binaires existent, ils doivent être exactement ceux annoncés.
+    bin_dir = ROOT / "native" / name / "bin"
+    if bin_dir.is_dir() and any(bin_dir.iterdir()):
+        for tag, path in entries.items():
+            if not path.startswith("res://"):
+                continue
+            on_disk = ROOT / path[len("res://"):]
+            rep.check(on_disk.exists(), f"{label} : {tag} pointe un fichier réel",
+                      f"{path} absent (extension compilée ?)")
+
+
+
+# --- La liste d'interface du test de chargement ----------------------------
+#
+# tests/test_native_load.gd annonce, pour chaque classe, les méthodes et les
+# signaux qu'il vérifiera dans ClassDB au chargement réel de la bibliothèque.
+# Cette liste est une COPIE : elle dérive un jour, et le jour où elle dérive le
+# test échoue pour une raison qui n'a rien à voir avec le code — ou pire, il
+# passe en vérifiant des noms que personne n'appelle.
+#
+# La confronter aux D_METHOD et ADD_SIGNAL du .cpp rend la dérive impossible :
+# c'est le seul endroit où les deux versions de l'interface se rencontrent, le
+# C++ n'étant pas introspectable depuis Python. Elle a déjà dérivé une fois : la
+# première version annonçait IdleStore.is_available(), configure() et le signal
+# purchases_restored, trois noms qui n'ont jamais existé.
+LOAD_TEST = ROOT / "tests" / "test_native_load.gd"
+TEST_CLASS_BLOCK = re.compile(r'const CLASSES := \{(.*?)\n\}', re.DOTALL)
+TEST_METHODS = re.compile(r'"methods":\s*\[(.*?)\]', re.DOTALL)
+TEST_SIGNALS = re.compile(r'"signals":\s*\[(.*?)\]', re.DOTALL)
+TEST_NAMES = re.compile(r'"([a-z_]+)"')
+
+
+def _cpp_exposed(cpp: str) -> tuple:
+    """(méthodes, signaux) effectivement exposés à GDScript par un .cpp."""
+    methods = set(re.findall(r'D_METHOD\("(\w+)"', cpp))
+    signals = set(re.findall(r'ADD_SIGNAL\(MethodInfo\("(\w+)"', cpp))
+    return methods, signals
+
+
+def _declared_interface() -> dict:
+    block = TEST_CLASS_BLOCK.search(LOAD_TEST.read_text(encoding="utf-8"))
+    if block is None:
+        return {}
+    body = block.group(1)
+    declared = {}
+    for entry in re.finditer(r'"(\w+)":\s*\{', body):
+        chunk = body[entry.end():]
+        methods = TEST_METHODS.search(chunk)
+        signals = TEST_SIGNALS.search(chunk)
+        declared[entry.group(1)] = (
+            set(TEST_NAMES.findall(methods.group(1))) if methods else set(),
+            set(TEST_NAMES.findall(signals.group(1))) if signals else set(),
+        )
+    return declared
+
+
+def check_load_test_list(rep: Report) -> None:
+    if not LOAD_TEST.exists():
+        rep.check(False, "test de chargement : le fichier existe", f"{LOAD_TEST} introuvable")
+        return
+    declared = _declared_interface()
+    rep.check(bool(declared), "test de chargement : const CLASSES est déclaré",
+              "constante introuvable — plus aucune classe ne serait testée")
+
+    for cpp_rel, klass in (("native/ads/src/idle_ads.cpp", "IdleAds"),
+                           ("native/store/src/idle_store.cpp", "IdleStore")):
+        methods, signals = _cpp_exposed(read(cpp_rel))
+        rep.check(klass in declared, f"test de chargement : {klass} est déclaré",
+                  "absent de const CLASSES — cette classe ne sera jamais testée")
+        if klass not in declared:
+            continue
+        want_m, want_s = declared[klass]
+        rep.check(want_m == methods,
+                  f"test de chargement : les méthodes de {klass} sont exactes",
+                  f"en trop {sorted(want_m - methods)} / en manque {sorted(methods - want_m)}")
+        rep.check(want_s == signals,
+                  f"test de chargement : les signaux de {klass} sont exacts",
+                  f"en trop {sorted(want_s - signals)} / en manque {sorted(signals - want_s)}")
+
 
 def main() -> int:
     rep = Report()
     check_ads(rep)
     check_store(rep)
+    check_manifest(rep, "ads", "idle_ads")
+    check_manifest(rep, "store", "idle_store")
+    check_load_test_list(rep)
 
     print(f"== Contrat natif : {rep.checks} vérifications, {len(rep.errors)} échecs ==")
     for error in rep.errors:

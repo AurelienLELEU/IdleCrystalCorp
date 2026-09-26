@@ -20,6 +20,7 @@ SUITES=(
 	"test_ui_compile|Construction de la scène principale"
 	"test_ui_interaction|Interaction réelle de l'interface"
 	"test_plugin_contract|Contrat entre le jeu et les extensions natives"
+	"test_native_load|Chargement réel des extensions compilées"
 	"test_safe_area|Zone sûre, centrage et débordement de la popup"
 )
 
@@ -33,8 +34,9 @@ typeset -a SUMMARY
 # Swift et les .cpp racontent la même histoire. Une dérive de signature entre
 # deux de ces fichiers se comporte très bien à l'édition, se comporte bien à
 # l'export, et plante à la première pub sur l'appareil — sans message d'erreur
-# qui pointe vers la cause. C'est le seul contrôle possible ici, le code natif
-# ne compilant pas sur cette machine.
+# qui pointe vers la cause. Il vérifie aussi que les chemins du manifeste
+# .gdextension suivent la règle de suffixe de godot-cpp, et que la liste
+# d'interface de test_native_load.gd n'a pas dérivé des .cpp.
 echo ""
 echo "──────────────────────────────────────────────────────────────"
 echo "  check_native_contract — frontières C / C++ / Objective-C++ / Swift"

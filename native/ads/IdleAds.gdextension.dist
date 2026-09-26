@@ -23,28 +23,25 @@ reloadable = true
 
 [libraries]
 
-macos.debug = "res://native/ads/bin/libidle_ads.macos.template_debug.framework"
-macos.release = "res://native/ads/bin/libidle_ads.macos.template_release.framework"
-linux.debug.x86_64 = "res://native/ads/bin/libidle_ads.linux.template_debug.x86_64.so"
-linux.release.x86_64 = "res://native/ads/bin/libidle_ads.linux.template_release.x86_64.so"
-windows.debug.x86_64 = "res://native/ads/bin/libidle_ads.windows.template_debug.x86_64.dll"
-windows.release.x86_64 = "res://native/ads/bin/libidle_ads.windows.template_release.x86_64.dll"
-
-; --- iOS ---------------------------------------------------------------
-; arm64          : appareil réel (iPhone, iPad)
-; arm64-simulator: simulateur sur Apple Silicon
-; x86_64-simulator: simulateur sur Intel
+; Ces noms ne sont pas choisis : ils sont produits par la règle de suffixe de
+; godot-cpp, « .<plateforme>.<cible>.<arch>[.simulator] », plus l'extension de
+; la bibliothèque. Écrire ces chemins à la main avait produit des entrées sans
+; fichier correspondant : l'extension compilait, le manifeste s'activait, et
+; Godot ne trouvait toujours pas la bibliothèque au chargement.
 ;
-; Le simulateur et l'appareil partagent la même architecture (arm64) mais pas la
-; même plate-forme : une seule des deux lignes sera satisfaite selon la
-; destination de compilation. Godot distingue les deux cas.
+; Le simulateur est un binaire « universal » (x86_64 + arm64) : les deux
+; étiquettes de simulateur pointent sur le MÊME fichier, qui contient les deux
+; tranches. Le fichier existe donc que Godot demande arm64-simulator ou
+; x86_64-simulator.
+;
+; tests/check_native_contract.py vérifie que chaque chemin existe sur le disque
+; dès qu'une extension a été compilée.
+macos.debug = "res://native/ads/bin/libidle_ads.macos.template_debug.universal.dylib"
+macos.release = "res://native/ads/bin/libidle_ads.macos.template_release.universal.dylib"
 
 ios.debug.arm64 = "res://native/ads/bin/libidle_ads.ios.template_debug.arm64.dylib"
 ios.release.arm64 = "res://native/ads/bin/libidle_ads.ios.template_release.arm64.dylib"
-ios.debug.arm64-simulator = "res://native/ads/bin/libidle_ads.ios.template_debug.arm64-simulator.dylib"
-ios.release.arm64-simulator = "res://native/ads/bin/libidle_ads.ios.template_release.arm64-simulator.dylib"
-ios.debug.x86_64-simulator = "res://native/ads/bin/libidle_ads.ios.template_debug.x86_64-simulator.dylib"
-ios.release.x86_64-simulator = "res://native/ads/bin/libidle_ads.ios.template_release.x86_64-simulator.dylib"
-
-android.debug.arm64 = "res://native/ads/bin/libidle_ads.android.template_debug.arm64.so"
-android.release.arm64 = "res://native/ads/bin/libidle_ads.android.template_release.arm64.so"
+ios.debug.arm64-simulator = "res://native/ads/bin/libidle_ads.ios.template_debug.universal.simulator.dylib"
+ios.release.arm64-simulator = "res://native/ads/bin/libidle_ads.ios.template_release.universal.simulator.dylib"
+ios.debug.x86_64-simulator = "res://native/ads/bin/libidle_ads.ios.template_debug.universal.simulator.dylib"
+ios.release.x86_64-simulator = "res://native/ads/bin/libidle_ads.ios.template_release.universal.simulator.dylib"

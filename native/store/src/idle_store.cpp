@@ -1,6 +1,9 @@
 #include "idle_store.h"
 #include "idle_store_ios.h"
 
+// ClassDB, D_METHOD, MethodInfo, PropertyInfo : tous définis dans class_db.hpp.
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/core/method_bind.hpp>
 using namespace godot;
 
 namespace godot {

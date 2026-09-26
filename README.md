@@ -287,11 +287,15 @@ native/ads/
 ### Compiler
 
 ```bash
-brew install scons
-git clone -b 4.7 https://github.com/godotengine/godot-cpp native/ads/godot-cpp
+brew install scons                                   # ou : pip3 install --user scons
+git clone -b master https://github.com/godotengine/godot-cpp native/ads/godot-cpp
 native/ads/build.sh              # macOS + iOS
 native/ads/build.sh ios          # iOS seul
 ```
+
+Les cibles sont `macos` et `ios`. Il n'existe **pas** de cible
+`target=ios_simulator` : ce nom ne veut rien dire pour ce script, qui le
+rejette au lieu de le deviner.
 
 Xcode **complet** est requis, pas seulement les Command Line Tools :
 
@@ -299,6 +303,29 @@ Xcode **complet** est requis, pas seulement les Command Line Tools :
 xcode-select --install           # ne suffit PAS
 sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ```
+
+Sans `sudo`, la même effet s'obtient par variable d'environnement, et c'est
+**préférable** pour ce projet :
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+```
+
+Cette variable est indispensable, et pas seulement pour `xcodebuild`. Le
+`swiftc` trouvé par `command -v` est celui des Command Line Tools ; compilé
+avec le SDK d'Xcode 27, il échoue sur des dizaines de messages
+« consecutive statements on a line must be separated by `;` » **à l'intérieur
+des `.swiftinterface` du SDK lui-même**, qui ne sont pas du code à nous.
+`native/store/SConstruct` va donc chercher le bon `swiftc` par
+`xcrun --find swiftc`, qui respecte `DEVELOPER_DIR`, et avertit
+explicitement s'il retombe sur les Command Line Tools.
+
+La version de l'API GDExtension est **lue dans `project.godot`**, jamais
+codée en dur dans les scripts : une extension compilée contre une autre
+version est refusée au chargement, et le pire moment pour l'apprendre est
+après toute la chaîne d'export et de signature. `build.sh` refuse de
+compiler si le `godot-cpp` cloné ne fournit pas cette version, et liste
+celles qu'il fournit.
 
 Le SDK AdMob s'obtient via CocoaPods (`pod install` récupère
 `Google-Mobile-Ads-SDK`). `build.sh` le cherche dans les emplacements
@@ -309,6 +336,41 @@ alors sur son simulateur, ce qui sert à valider le reste.
 `build.sh` n'active le manifeste `.gdextension` **qu'après** un build complet.
 Tant que le binaire manque, Godot spammerait quatre lignes d'erreur de
 `dlopen` à chaque lancement, dans l'éditeur comme dans les tests.
+
+`tests/test_native_load.gd` va jusqu'au bout : il charge les deux extensions
+réellement compilées, vérifie que leurs classes arrivent dans `ClassDB`, et
+que les méthodes et signaux que le jeu appelle existent vraiment. C'est le
+seul test qui prouve que la chaîne entière fonctionne, et il ne s'exécute
+que si une extension a été compilée — sinon il affiche « rien à vérifier »
+plutôt qu'un nombre qui ferait croire à une couverture.
+
+### Ce que la première compilation a révélé
+
+Le code natif n'avait jamais été compilé. Il ne compilait pas. Les défauts
+suivants étaient invisibles sans un vrai `scons` — ils sont documentés ici
+parce que chacun se camoufle en succès :
+
+| Défaut | Pourquoi ça passait |
+|---|---|
+| `if scons … \| tee log` | en zsh, le statut d'un pipeline est celui de `tee`, qui réussit toujours : **tout build cassé était rapporté réussi** |
+| `deactivate()` faisait `mv $ACTIVE $DIST` | le build écrasait la source de vérité par la copie périmée ; corriger le manifeste puis compiler l'effaçait silencieusement |
+| Le manifeste pointait `native/bin/` | le SConstruct écrivait ailleurs : binaires produits, manifeste activé, extension introuvable |
+| macOS annoncé en `.framework` | godot-cpp produit un `.dylib` ; le nom n'est pas choisi, il est calculé |
+| `arm64-simulator` comme arch scons | valeur inventée : scons sort en erreur avant de lire une ligne du projet |
+| `#ifdef __APPLE__` autour d'un `#import <UIKit>` | `__APPLE__` est vrai sur **macOS** aussi : la cible `macos` échouait |
+| `IDLE_ADS_NO_SDK` mentionné, jamais défini | le garde-fou du `.mm` ne protégeait rien |
+| `env.Command(..., [liste])` pour swiftc | SCons n'exécute que le premier élément : la commande lançait `swiftc` seul, « error: no input files » |
+| `SDKROOT=iphoneos` passé à swiftc | c'est un *nom*, pas un dossier : « unable to load standard library » |
+| `SKError.Code.storeKitErrorFailedLoadProducts` | nom Objective-C, pas Swift : le cas n'existe pas. Les 16 cas réels ont été relevés en compilant des sondes |
+| archive Swift en arm64 seule | godot-cpp produit un macOS « universal » : il faut compiler par tranche puis `lipo` |
+| `libswiftCompatibility56` introuvable | le runtime est dans le **toolchain**, pas dans le SDK |
+
+`tests/check_native_contract.py` vérifie désormais, sans rien compiler, que
+chaque chemin du manifeste suit la règle de suffixe de godot-cpp recopiée
+depuis `tools/godotcpp.py`, et que la liste d'interface de
+`test_native_load.gd` n'a pas dérivé des `.cpp`. Les deux contrôles ont été
+testés **négativement** : chacun a été cassé exprès pour vérifier qu'il
+échouait.
 
 ### Le mode test
 
@@ -368,7 +430,7 @@ native/store/
 ```
 
 ```bash
-git clone -b 4.7 https://github.com/godotengine/godot-cpp native/store/godot-cpp
+git clone -b master https://github.com/godotengine/godot-cpp native/store/godot-cpp
 native/store/build.sh
 ```
 

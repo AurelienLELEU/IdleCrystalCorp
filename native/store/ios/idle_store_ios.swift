@@ -47,10 +47,19 @@ private func describe(_ error: Error) -> String {
             return "paiement refusé : moyen de paiement non autorisé"
         case .paymentInvalid:
             return "paiement invalide"
-        case .storeKitErrorFailedLoadProducts:
-            return "catalogue indisponible : vérifiez que les identifiants existent dans App Store Connect et qu'ils sont rattachés au bon groupe de prix"
+        case .storeProductNotAvailable:
+            // SKError.Code n'a AUCUN cas « failed to load products ». Le nom
+            // `storeKitErrorFailedLoadProducts` existe bien, mais c'est
+            // l'ancienne constante Objective-C (SKErrorStoreKitError...),
+            // pas un cas Swift : le compilateur le refuse. La liste réelle
+            // a été relevée cas par cas sur le SDK iOS 27, en faisant compiler
+            // un fichier de sondes — l'en-tête Objective-C, lui, ne liste que
+            // 22 cas sur les 16 réellement exposés en Swift 2.
+            return "produit indisponible : vérifiez que les identifiants existent dans App Store Connect, qu'ils sont rattachés au bon groupe de prix et que l'accord de vente est actif"
+        case .invalidOfferIdentifier:
+            return "identifiant d'offre invalide : l'identifiant du produit ne correspond à rien dans App Store Connect"
         case .unknown:
-            return "erreur inconnue du magasin"
+            return "erreur inconnue du magasin — c'est le cas le plus fréquent quand un product_id est mal orthographié dans game_config.json"
         default:
             return "erreur App Store \(code.rawValue) : \(ns.localizedDescription)"
         }

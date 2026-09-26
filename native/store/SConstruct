@@ -12,36 +12,191 @@ lien et l'extension se charge puis plante au premier achat.
 
 import os
 
-env = SConscript("godot-cpp/SConstruct")
+# L'API GDExtension doit correspondre EXACTEMENT au moteur. build.sh la lit
+# dans project.godot et l'exporte, donc il n'y a qu'une seule source de vérité.
+# Un « 4.6 » oublié ici produirait une extension qui compile sans une seule
+# erreur et qui est refusée au chargement, après toute la chaîne d'export et de
+# signature : le pire moment pour l'apprendre.
+GODOT_API_VERSION = os.environ.get("GODOT_API_VERSION", "")
+if not GODOT_API_VERSION:
+    print("!! GODOT_API_VERSION absent. Passez par build.sh : il la lit dans")
+    print("   project.godot, et c'est la seule façon de ne pas se tromper de version.")
+    Exit(1)
+
+env = SConscript("godot-cpp/SConstruct", {"api_version": GODOT_API_VERSION})
 
 env.Append(CPPPATH=["src/", "ios/"])
 env.Append(FRAMEWORKS=["Foundation", "StoreKit", "UIKit"])
 
-# --- Module Swift -> archive statique --------------------------------------
-# swiftc produit un objet, pas une bibliothèque : -emit-library -static le
-# transforme en archive que l'éditeur de liens C++ peut intégrer.
-swift_sources = Glob("ios/*.swift")
-swift_objects = []
-if swift_sources:
-    swift_objects = env.Command(
-        "build/IdleStore.swiftmodule.o",
-        swift_sources,
-        [
-            "swiftc",
-            "-emit-object",
-            "-parse-as-library",
-            "-target", env.get("swift_target", "arm64-apple-ios15.0"),
-            "-sdk", env.get("SDKROOT", "iphoneos"),
-            "-O",
-            "-c", "${SOURCES.abspath}",
-            "-o", "${TARGET.abspath}",
-        ],
-    )
-    env.Depends(swift_objects[0], swift_sources)
+# --- Module Swift -> objet linkable ---------------------------------------
+# swiftc ne produit pas une bibliothèque qu'un éditeur de liens C++ puisse
+# intégrer : il faut un objet par fichier, passé ensuite à SharedLibrary.
 
-sources = Glob("src/*.cpp") + swift_objects
+import subprocess
+
+
+def _resolve_sdk(name):
+    """« iphoneos » n'est pas un chemin, et swiftc le refuse.
+
+    `warning: no such SDK: iphoneos` puis `unable to load standard library` :
+    swiftc veut un DOSSIER de SDK, alors que build.sh et SCons travaillent
+    couramment avec le nom court. C'est xcrun qui sait traduire l'un en
+    l'autre.
+    """
+    if not name:
+        return ""
+    if os.path.isdir(name):
+        return name
+    try:
+        return subprocess.check_output(
+            ["xcrun", "--sdk", name, "--show-sdk-path"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return name
+
+
+_platform = env["platform"]
+_is_simulator = bool(env.get("ios_simulator", False))
+_default_sdk = {
+    "ios": "iphonesimulator" if _is_simulator else "iphoneos",
+    "macos": "macosx",
+}.get(_platform, "")
+_default_swift_target = {
+    "ios": "arm64-apple-ios15.0-simulator" if _is_simulator else "arm64-apple-ios15.0",
+    "macos": "arm64-apple-macos13.0",
+}.get(_platform, "arm64-apple-ios15.0")
+
+def _resolve_swiftc():
+    """Le swiftc de Xcode, pas celui des CommandLineTools.
+
+    `command -v swiftc` renvoie /usr/bin/swiftc, un shim des CommandLineTools.
+    Sur cette machine il annonce Swift 6.1.2 alors que le SDK Xcode 27 fournit
+    des interfaces Swift 6.4 : le compilateur passe alors des dizaines de
+    messages « consecutive statements on a line must be separated by ; » à
+    l'intérieur des .swiftinterface du SDK lui-même, qui ne sont pas du tout du
+    code à nous. Rien dans ces messages ne désigne la vraie cause.
+
+    xcrun respecte DEVELOPER_DIR : c'est lui qui choisit le bon toolchain.
+    SWIFTC permet de forcer un autre choix.
+    """
+    if os.environ.get("SWIFTC"):
+        return os.environ["SWIFTC"]
+    try:
+        return subprocess.check_output(["xcrun", "--find", "swiftc"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "swiftc"
+
+
+swiftc_path = _resolve_swiftc()
+if "CommandLineTools" in swiftc_path:
+    print(
+        "!! swiftc résolu vers les CommandLineTools (%s)." % swiftc_path
+    )
+    print("   Les interfaces Swift du SDK Xcode sont plus récentes et la")
+    print("   compilation échouera sur des messages trompeurs.")
+    print("   Renseignez DEVELOPER_DIR, ou SWIFTC, puis relancez.")
+
+env.AppendUnique(
+    SWIFTC=swiftc_path,
+    SWIFT_TARGET=env.get("swift_target") or _default_swift_target,
+    SWIFT_SDK=_resolve_sdk(env.get("SDKROOT") or _default_sdk),
+)
+if not env["SWIFT_SDK"]:
+    print("!! SDK introuvable pour la plateforme %s." % _platform)
+    Exit(1)
+
+# La commande est une CHAÎNE, pas une liste. En liste, SCons n'exécute que le
+# premier élément : la commande lançait « swiftc » tout seul, et swiftc
+# répondait « error: no input files ». Les arguments suivants étaient
+# silencieusement jetés — le genre d'erreur qui laisse croire à un problème de
+# SDK alors que le problème est la forme de l'action.
+# `-emit-library -static` produit une ARCHIVE, pas un objet isolé, et c'est
+# indispensable : un `.o` simple est vu par SCons comme un fichier statique, et
+# le lien vers une bibliothèque partagée échoue alors sur
+# « Source file ... is static and is not compatible with shared target ».
+# L'archive, elle, s'intègre normalement — c'est par là que godot-cpp lie
+# lui-même sa propre bibliothèque statique.
+#
+# Une seule commande pour tous les fichiers : entre guillemets, « $SOURCES »
+# avec plusieurs fichiers deviendrait UN seul argument illisible pour swiftc.
+# swiftc accepte plusieurs « -target » mais n'en compile que le DERNIER : le
+# résultat n'est pas un fichier gras. Sur macOS, godot-cpp produit un binaire
+# « universal », et l'archive Swift en arm64 seule faisait échouer le lien sur
+# « found architecture 'arm64', required architecture 'x86_64' ». Il faut donc
+# compiler tranche par tranche, puis réunir avec lipo.
+_base_target = env.get("swift_target") or _default_swift_target
+_arch_list = [a for a in (env["arch"] or "").split(",") if a] or ["arm64"]
+if env["arch"] == "universal":
+    _arch_list = ["arm64", "x86_64"]
+
+swift_sources = Glob("ios/*.swift")
+if swift_sources:
+    _per_arch = []
+    for _sub in _arch_list:
+        # arm64-apple-macos13.0 -> x86_64-apple-macos13.0
+        _sub_target = _sub + _base_target.split("-", 1)[1]
+        _sub_target = _sub + "-" + _base_target.split("-", 1)[1]
+        _node = env.Command(
+            "build/swift-%s.a" % _sub,
+            swift_sources,
+            '"$SWIFTC" -emit-library -static -parse-as-library '
+            '-target "%s" -sdk "$SWIFT_SDK" -O "$SOURCES" -o "$TARGET"' % _sub_target,
+        )
+        env.Depends(_node[0], swift_sources)
+        _per_arch.append(_node[0])
+
+    if len(_per_arch) == 1:
+        swift_archive = env.Command(
+            "build/libIdleStoreSwift.a", _per_arch, 'cp "$SOURCE" "$TARGET"'
+        )
+    else:
+        swift_archive = env.Command(
+            "build/libIdleStoreSwift.a",
+            _per_arch,
+            'lipo -create $SOURCES -output "$TARGET"',
+        )
+    # L'archive va dans LIBS, et le NŒUD est passé — pas une chaîne. Trois
+    # essayées, une seule marche :
+    #   source=[archive]   -> « is static and is not compatible with shared
+    #                          target » : SCons refuse de lier une archive
+    #                          qu'il a construite dans une bibliothèque partagée.
+    #   env.Object()       -> même refus.
+    #   LIBS=["libSwift.a"] -> SCons en déduit « -lSwift », et le lien part à la
+    #                          recherche d'une bibliothèque Swift named d'abord.
+    #   LIBS=[noeud]        -> le chemin exact arrive à l'éditeur de liens. C'est
+    #                          celle-là, et c'est aussi la forme qu'utilise
+    #                          godot-cpp pour sa propre bibliothèque statique.
+    env.Append(LIBS=[swift_archive[0]])
+
+    # Le runtime de compatibilité Swift n'est pas dans le SDK mais dans le
+    # TOOLCHAIN, sous lib/swift/<plateforme>/. Sans cette entrée de recherche,
+    # le lien échoue sur le seul symbole manquant :
+    #   __swift_FORCE_LOAD_$_swiftCompatibility56
+    # -L /usr/lib/swift est le chemin du runtime Swift SUR L'APPAREIL : c'est
+    # lui que le chargeur cherchera au lancement, pas celui du toolchain.
+    _sdk_name = {
+        "ios": "iphonesimulator" if _is_simulator else "iphoneos",
+        "macos": "macosx",
+    }.get(_platform, "macosx")
+    _toolchain_lib = os.path.join(
+        os.path.dirname(os.path.dirname(swiftc_path)), "lib", "swift", _sdk_name
+    )
+    if not os.path.isdir(_toolchain_lib):
+        print("!! runtime de compatibilité Swift absent : %s" % _toolchain_lib)
+        Exit(1)
+    env.Append(LIBPATH=[_toolchain_lib])
+    env.Append(LINKFLAGS=["-L/usr/lib/swift"])
+
+sources = Glob("src/*.cpp")
 library = env.SharedLibrary(
-    "../bin/libidle_store{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+    # `bin/` et NON `../bin/`. Le SConstruct est évalué depuis native/<nom>/, donc
+    # « ../bin/ » produisait res://native/bin/, alors que le manifeste
+    # .gdextension — seul fichier que Godot lit — annonce
+    # res://native/<nom>/bin/. Les deux jamais lus ensemble : les binaires
+    # étaient produits, le manifeste activé, et l'extension introuvable au
+    # chargement. C'est le genre d'incohérence qu'aucun test ne voit tant que
+    # personne n'essaie de charger l'extension pour de vrai.
+    "bin/libidle_store{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
     source=sources,
 )
 Default(library)

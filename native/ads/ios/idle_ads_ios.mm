@@ -31,7 +31,15 @@
 
 #include <string.h>
 
-#ifdef __APPLE__
+// `__APPLE__` ne veut PAS dire « iOS » : il est défini sur macOS aussi. Le
+// garde-fou `#ifdef __APPLE__` laissait donc cette compilation aller jusqu'à
+// `#import <UIKit/UIKit.h>`, inexistant sur Mac, et la cible `macos`
+// échouait. Le test correct est `TARGET_OS_IOS`, qui vient de
+// TargetConditionals.h. UIKit est un SDK iOS, pas un SDK Mac : la confusion
+// était le premier obstacle réel à la compilation sur cette machine.
+#include <TargetConditionals.h>
+
+#if defined(__APPLE__) && TARGET_OS_IOS
 
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
@@ -194,4 +202,16 @@ void idle_ads_ios_show_rewarded(const char *p_reward_id) {
 
 #endif // IDLE_ADS_NO_SDK
 
-#endif // __APPLE__
+#else // pas iOS : macOS, Linux, Windows
+
+// Le .h déclare idle_ads_ios_configure et idle_ads_ios_show_rewarded SUR
+// TOUTES les plateformes, en annonçant que sur une plateforme sans AdMob elles
+// « renvoient 0 / ne font rien ». L'implémentation de ces stubs n'existait
+// nulle part : sans elle, l'édition de lien échoue sur toute cible non-Apple
+// avec un `undefined symbol` pointant sur ce fichier-ci. Ils sont donc ici, et
+// le jeu bascule sur son simulateur intégré, comme documenté dans le .h.
+
+int idle_ads_ios_configure(const char *p_app_id, const char *p_rewarded_unit_id, int p_debug) { return 0; }
+void idle_ads_ios_show_rewarded(const char *p_reward_id) { }
+
+#endif // TARGET_OS_IOS
