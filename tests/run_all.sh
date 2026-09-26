@@ -20,7 +20,7 @@ SUITES=(
 	"test_offline_persistence|Quitter l'app : gains, quarantaine, retour au premier plan|29"
 	"test_save_codec|Intégrité du format de sauvegarde (CRC, longueur, contrat)|57"
 	"test_ui_compile|Construction de la scène principale|19"
-	"test_ui_interaction|Interaction réelle de l'interface|82"
+	"test_ui_interaction|Interaction réelle de l'interface|87"
 	"test_plugin_contract|Contrat entre le jeu et les extensions natives|47"
 	"test_ads_economy|Plafonds quotidiens, budget commun, fenêtre de pub|34"
 	"test_native_load|Chargement réel des extensions compilées|19"

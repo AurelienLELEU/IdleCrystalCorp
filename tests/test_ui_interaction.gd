@@ -337,6 +337,28 @@ func _test_store_confirmation() -> void:
 	_check(not store.call("is_purchased", product_id),
 		"boutique : « Annuler » n'achète rien")
 
+	# Le produit de surcharge appelle lui aussi GameManager.notify() lors du
+	# grant. L'UI écoute déjà purchase_completed pour le toast d'achat : sans le
+	# grant silencieux, un seul paiement produit deux notifications. Exécuter le
+	# trajet complet (demande -> confirmation -> paiement simulé), puis compter
+	# les vrais nœuds Toast de la CanvasLayer.
+	var boost_id := "boost_production"
+	var toasts_before := _toast_count()
+	store.call("request_purchase", boost_id)
+	await process_frame
+	var boost_modal: Node = _overlay_last(_ui, "OverlayLayer")
+	_check(boost_modal != null, "boutique : confirmation de surcharge affichée")
+	if boost_modal == null:
+		return
+	_click_button_with_text(boost_modal, "Acheter —")
+	await process_frame
+	await process_frame
+	_check(int(_game.get("boost_stacks")) == 1,
+		"boutique : la surcharge est bien accordée par le bouton de confirmation")
+	_check(_toast_count() - toasts_before == 1,
+		"boutique : un seul toast annonce un achat de surcharge (delta %d)"
+			% (_toast_count() - toasts_before))
+
 
 func _test_settings_toggles() -> void:
 	_game.call("hard_reset")
@@ -406,11 +428,15 @@ func _test_restore_button() -> void:
 	_game.set("flags", {})
 	_check(not _game.call("has_no_ads"), "restauration : le droit a bien été perdu")
 
+	var toasts_before := _toast_count()
 	_click_button_with_text(_ui, "Restaurer")
 	await process_frame
 	await process_frame
 	_check(_game.call("has_no_ads"),
 		"restauration : le bouton rend les droits, sans repayer")
+	_check(_toast_count() - toasts_before == 1,
+		"restauration : un seul toast de synthèse, pas un toast par achat (delta %d)"
+			% (_toast_count() - toasts_before))
 	store.set("_owned", {})
 
 
@@ -442,11 +468,15 @@ func _test_hard_reset_from_ui() -> void:
 	_ui.call("_confirm_hard_reset")
 	await process_frame
 	modal = _overlay_last(_ui, "OverlayLayer")
+	var toasts_before := _toast_count()
 	_click_button_with_text(modal, "Oui, tout effacer")
 	await process_frame
 	_check(int(_game.get("prestige_points")) == 0, "reset : progression effacée après confirmation")
 	_check((_game.get("current_resources") as BigNum).lt(BigNum.from_float(1e30)),
 		"reset : ressources revenues au début")
+	_check(_toast_count() - toasts_before == 1,
+		"reset : un seul toast annonce la réinitialisation (delta %d)"
+			% (_toast_count() - toasts_before))
 
 
 ## Un jeu idle se joue sur des écrans très inégaux, du petit téléphone à la
@@ -480,6 +510,19 @@ func _layer_child_count(node: Node, layer_name: String) -> int:
 	if layer == null:
 		return 0
 	return layer.get_child_count()
+
+
+## Nombre de vrais toasts dans la couche de l'UI (les modales et autres enfants
+## de la CanvasLayer ne comptent pas).
+func _toast_count() -> int:
+	var layer: Node = _ui.get_node_or_null("ToastLayer")
+	if layer == null:
+		return 0
+	var count := 0
+	for child in layer.get_children():
+		if child is Toast:
+			count += 1
+	return count
 
 
 func _overlay_last(node: Node, layer_name: String) -> Node:

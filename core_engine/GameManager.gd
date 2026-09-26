@@ -1284,7 +1284,8 @@ func grant_store_product(product_id: String, silent: bool = false) -> void:
 	if grant.has("instant_hours"):
 		_grant(get_production_per_sec().mul_float(float(grant["instant_hours"]) * float(grant.get("instant_multiplier", 1.0))), true)
 	if grant.has("boost_hours"):
-		_apply_boost(float(grant.get("boost_multiplier", 10.0)), float(grant["boost_hours"]))
+		_apply_boost(float(grant.get("boost_multiplier", 10.0)),
+			float(grant["boost_hours"]), silent)
 	_recalculate()
 	save_game()
 
@@ -1299,7 +1300,7 @@ func grant_store_product(product_id: String, silent: bool = false) -> void:
 ##
 ## Le multiplicateur, lui, ne s'additionne pas : c'est le maximum. Cumuler deux
 ## ×10 donnerait ×100, ce qui n'est pas ce qu'annonce le produit.
-func _apply_boost(multiplier: float, hours: float) -> void:
+func _apply_boost(multiplier: float, hours: float, silent: bool = false) -> void:
 	var now := Time.get_unix_time_from_system()
 	var active := now < boost_ends_at
 	boost_multiplier = multiplier if not active else maxf(multiplier, boost_multiplier)
@@ -1312,8 +1313,9 @@ func _apply_boost(multiplier: float, hours: float) -> void:
 	_boost_active = true
 	_production_dirty = true
 	_recalculate()
-	notify("Surcharge cumulée : production %s pendant %s au total" % [
-		Fmt.multiplier(boost_multiplier), Fmt.duration(get_boost_remaining())], "success")
+	if not silent:
+		notify("Surcharge cumulée : production %s pendant %s au total" % [
+			Fmt.multiplier(boost_multiplier), Fmt.duration(get_boost_remaining())], "success")
 
 
 ## Surcharge temporaire, y compris obtenue via une pub récompensée.

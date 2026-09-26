@@ -100,7 +100,10 @@ func _on_plugin_purchased(native_product_id: String) -> void:
 	# StoreKit parle en identifiants App Store Connect, la config en identifiants
 	# internes (« supprimer_pubs »). Le pont est la recherche inverse.
 	var product_id := _internal_id_for(native_product_id)
-	_grant(product_id)
+	# Le signal `purchase_completed` est la source unique du toast d'achat. Le
+	# grant ne doit pas aussi annoncer le produit (no-ads/surcharge) via
+	# `GameManager.message`, sinon le joueur reçoit deux toasts pour un paiement.
+	_grant(product_id, true)
 	purchase_completed.emit(product_id)
 
 
@@ -283,7 +286,7 @@ func submit_purchase(product_id: String) -> void:
 		purchase_failed.emit(product_id, unavailable_reason(product_id))
 		return
 	if mock or _plugin == null:
-		_grant(product_id)
+		_grant(product_id, true)
 		purchase_completed.emit(product_id)
 		return
 	if _plugin.has_method("purchase"):
@@ -299,7 +302,7 @@ func complete_mock_purchase(product_id: String) -> void:
 	if not can_purchase(product_id):
 		purchase_failed.emit(product_id, unavailable_reason(product_id))
 		return
-	_grant(product_id)
+	_grant(product_id, true)
 	purchase_completed.emit(product_id)
 
 
@@ -313,20 +316,20 @@ func restore_purchases() -> void:
 		if is_consumable(id):
 			continue
 		if bool(_owned.get(id, false)):
-			_grant(id)
+			_grant(id, true)
 			restored.append(id)
-	for id in restored:
-		purchase_completed.emit(id)
 	if restored.is_empty():
-		purchase_failed.emit("", "rien à restaurer")
+		GameManager.notify("Aucun achat à restaurer.", "info")
+	else:
+		GameManager.notify("%d achat(s) restauré(s)." % restored.size(), "success")
 
 
-func _grant(product_id: String) -> void:
+func _grant(product_id: String, silent: bool = false) -> void:
 	if not is_consumable(product_id):
 		_owned[product_id] = true
 	var game: Variant = _game()
 	if game != null:
-		game.call("grant_store_product", product_id)
+		game.call("grant_store_product", product_id, silent)
 
 
 ## Nombre de surcharges actives, et non une estimation.

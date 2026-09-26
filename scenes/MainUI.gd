@@ -928,7 +928,6 @@ func _confirm_hard_reset() -> void:
 	modal.add_button("💀 Oui, tout effacer", func() -> void:
 		GameManager.hard_reset()
 		modal.close()
-		Toast.push(_toast_layer, "Partie réinitialisée.", "warn")
 	, UITheme.ERROR.darkened(0.12))
 	modal.add_button("Annuler", modal.close, UITheme.PANEL_ALT)
 
