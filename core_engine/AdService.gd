@@ -104,30 +104,58 @@ func is_busy() -> bool:
 
 
 func daily_cap(reward_id: String) -> int:
-	match reward_id:
+	match _cap_bucket(reward_id):
 		REWARD_PRODUCTION_BOOST:
 			return int(_settings_value("daily_cap_production_boost", 3))
-		REWARD_OFFLINE_DOUBLE, REWARD_DAILY_DOUBLE:
+		REWARD_OFFLINE_DOUBLE:
 			return int(_settings_value("daily_cap_offline_double", 1))
 		REWARD_FREE_CRYSTALS:
 			return int(_settings_value("daily_cap_free_crystals", 5))
 	return 99
 
 
+## Le budget se compte par SEAU, pas par récompense.
+##
+## `daily_cap_offline_double` couvre le double des gains hors-ligne ET celui du
+## bonus quotidien : les deux lisent la même valeur de configuration, donc elles
+## doivent partager le même compteur. `get_daily_count()` indexait par
+## `reward_id`, si bien qu'un joueur pouvait dépenser deux fois le budget prévu
+## en alternant les deux — vérifié par exécution, pas déduit du code.
+##
+## Le seau n'est PAS l'inverse de `is_purchased()` côté boutique : c'est le même
+## principe — une valeur de configuration partagée doit n'avoir qu'un seul
+## compteur, sinon elle ne borne rien.
+func _cap_bucket(reward_id: String) -> String:
+	if reward_id == REWARD_DAILY_DOUBLE:
+		return REWARD_OFFLINE_DOUBLE
+	return reward_id
+
+
 func get_daily_count(reward_id: String) -> int:
-	return int(_daily_counts.get("%s:%d" % [reward_id, _today()], 0))
+	return int(_daily_counts.get("%s:%d" % [_cap_bucket(reward_id), _today()], 0))
 
 
 ## Une récompense pub n'est jamais due si le joueur a acheté « Supprimer les pubs ».
+##
+## Le double des gains hors-ligne était court-circuité par un `return true` sans
+## condition, avec le commentaire « une seule fois par popup : c'est le popup
+## lui-même qui borne l'usage ». Cette borne n'existe pas : `pending_offline`
+## se remplit à chaque retour au premier plan, donc le popup revient toutes les
+## 60 secondes, et le joueur pouvait doubler ses gains hors-ligne autant de fois
+## qu'il le voulait. Mesuré : 8 doubles sur 8 tentatives, pour un plafond
+## configuré à 1. `daily_cap_offline_double` était donc du code mort — et
+## `production_boost` et `free_crystals` respectaient bien le leur, ce qui rendait
+## l'exception d'autant plus suspecte.
+##
+## Le plafond configuré fait désormais autorité. Si vous voulez un double
+## hors-ligne illimité, mettez `daily_cap_offline_double` à 99 dans
+## `data/game_config.json` : c'est un réglage, pas une branche codée en dur.
 func is_available(reward_id: String) -> bool:
 	if not enabled or _busy:
 		return false
 	var game: Variant = _game()
 	if game != null and bool(game.call("has_no_ads")):
 		return false
-	if reward_id == REWARD_OFFLINE_DOUBLE:
-		# Une seule fois par popup : c'est le popup lui-même qui borne l'usage.
-		return true
 	return get_daily_count(reward_id) < daily_cap(reward_id)
 
 
@@ -179,16 +207,47 @@ func _open_mock_overlay() -> void:
 		await get_tree().create_timer(0.05).timeout
 		complete(_active_reward)
 		return
+	_mount_mock_overlay()
+
+
+## Monte la fenêtre de pub simulée et branche le filet de sécurité.
+##
+## Séparée de `_open_mock_overlay()` pour une raison qui n'est pas le style :
+## la branche headless de cette fonction-ci ne crée jamais d'overlay, donc un
+## test du filet de sécurité qui l'appellerait ne testerait jamais le filet de
+## sécurité. Il passerait au vert en n'exerçant aucune des lignes qu'il prétend
+## couvrir. Ici, le test monte une VRAIE fenêtre et la fait disparaître pour de
+## vrai.
+func _mount_mock_overlay() -> void:
 	_overlay = _build_mock_overlay()
 	var layer := CanvasLayer.new()
 	layer.layer = 120
 	layer.add_child(_overlay)
 	add_child(layer)
-	_overlay.tree_exited.connect(func() -> void:
-		layer.queue_free()
-		if is_instance_valid(_overlay):
-			_overlay = null
-	)
+	_overlay.tree_exited.connect(func() -> void: _on_overlay_exited(layer))
+
+
+func _on_overlay_exited(layer: CanvasLayer) -> void:
+	# Filet de sécurité, capté AVANT le nettoyage : l'overlay peut disparaître
+	# sans avoir rendu son verdict — fenêtre fermée,
+	# `NOTIFICATION_WM_CLOSE_REQUEST`, scène supprimée. `complete()` et
+	# `abort()` remettent tous deux `_busy` à faux ET vident `_active_reward`
+	# avant que `tree_exited` ne parte, donc ce test ne les touche pas.
+	#
+	# Sans ce filet, `_busy` restait à `true` jusqu'au redémarrage de
+	# l'application : `is_available()` rendait alors `false` pour TOUTE
+	# récompense, l'UI désactivait « Regarder » en écrivant « Indisponible
+	# pour le moment », et rien n'indiquait au joueur qu'une pub était en
+	# cours. C'est-à-dire : plus aucune pub de la session, sans explication.
+	var was_busy := _busy
+	var pending := _active_reward
+	layer.queue_free()
+	if is_instance_valid(_overlay):
+		_overlay = null
+	if was_busy and not pending.is_empty():
+		_busy = false
+		_active_reward = ""
+		ad_failed.emit(pending, "pub interrompue")
 
 
 func _build_mock_overlay() -> Control:
@@ -283,7 +342,9 @@ func _build_mock_overlay() -> Control:
 # ----------------------------------------------------------------------- interne
 
 func _count_reward(reward_id: String) -> void:
-	var key := "%s:%d" % [reward_id, _today()]
+	# Le SEAU, pas la récompense : voir `_cap_bucket()`. Compter par récompense
+	# donnait au joueur deux fois le budget de `daily_cap_offline_double`.
+	var key := "%s:%d" % [_cap_bucket(reward_id), _today()]
 	_daily_counts[key] = int(_daily_counts.get(key, 0)) + 1
 	var game: Variant = _game()
 	if game != null:

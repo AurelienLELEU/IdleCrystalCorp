@@ -15,15 +15,31 @@ set -u
 cd "$(dirname "$0")/.."
 
 SUITES=(
-	"test_bignum|Nombres et formatage (BigNum)"
-	"test_game|Logique de jeu, sauvegarde, hors-ligne, ascension"
-	"test_offline_persistence|Quitter l'app : gains, quarantaine, retour au premier plan"
-	"test_ui_compile|Construction de la scène principale"
-	"test_ui_interaction|Interaction réelle de l'interface"
-	"test_plugin_contract|Contrat entre le jeu et les extensions natives"
-	"test_native_load|Chargement réel des extensions compilées"
-	"test_safe_area|Zone sûre, centrage et débordement de la popup"
+	"test_bignum|Nombres et formatage (BigNum)|161"
+	"test_game|Logique de jeu, sauvegarde, hors-ligne, ascension|132"
+	"test_offline_persistence|Quitter l'app : gains, quarantaine, retour au premier plan|28"
+	"test_ui_compile|Construction de la scène principale|19"
+	"test_ui_interaction|Interaction réelle de l'interface|78"
+	"test_plugin_contract|Contrat entre le jeu et les extensions natives|47"
+	"test_ads_economy|Plafonds quotidiens, budget commun, fenêtre de pub|34"
+	"test_native_load|Chargement réel des extensions compilées|19"
+	"test_safe_area|Zone sûre, centrage et débordement de la popup|64"
 )
+
+# Le nombre de vérifications ATTENDU par suite, dans la table ci-dessus.
+#
+# Pourquoi le compter, alors qu'un résumé « N vérifications, 0 échec » semble
+# suffire : parce qu'un test GDScript qui avorte en silence est VERT. Un
+# `call()` sur une méthode supprimée, un `await` oublié, une propriété
+# manquante — rien de tout cela ne lève d'échec, la suite perd des
+# vérifications en route et annonce quand même « 0 échec ». C'est arrivé pour
+# de vrai : `test_ui_interaction` perdait quatre vérifications et annonçait
+# 73 au lieu de 77.
+#
+# Un écart de compte est donc un échec, avec cette explication, et non un
+# chiffre que le lecteur doit remarquer lui-même. Le prix est qu'ajouter une
+# vérification oblige à mettre ce nombre à jour : c'est le prix à payer, et
+# l'oubli se voit immédiatement.
 
 total_fail=0
 total_checks=0
@@ -55,24 +71,39 @@ fi
 
 for entry in $SUITES; do
 	name="${entry%%|*}"
-	label="${entry#*|}"
+	rest="${entry#*|}"
+	label="${rest%%|*}"
+	expected="${rest##*|}"
 	echo ""
 	echo "──────────────────────────────────────────────────────────────"
 	echo "  $name — $label"
 	echo "──────────────────────────────────────────────────────────────"
 
 	log="$(mktemp)"
-	if ./tests/run.sh "res://tests/$name.gd" 120 >"$log" 2>&1; then
-		grep -vE '^(Godot Engine|$)' "$log"
-		checks="$(grep -cE '^  ok ' "$log")"
-		total_checks=$((total_checks + checks))
+	suite_status=0
+	if ! ./tests/run.sh "res://tests/$name.gd" 120 >"$log" 2>&1; then
+		suite_status=1
+	fi
+	grep -vE '^(Godot Engine|$)' "$log"
+	checks="$(grep -cE '^  ok ' "$log")"
+	total_checks=$((total_checks + checks))
+	rm -f "$log"
+
+	if [ "$checks" != "$expected" ]; then
+		echo ""
+		echo "  ATTENTION : $name a exécuté $checks vérifications, $expected attendues."
+		echo "  Une suite qui avorte en silence est verte : le compte ci-dessus"
+		echo "  est le seul indice. Soit un contrôle s'est perdu, soit la table"
+		echo "  SUITES de tests/run_all.sh n'a pas été mise à jour."
+		suite_status=1
+	fi
+
+	if [ "$suite_status" -eq 0 ]; then
 		SUMMARY+=("  OK      ${checks} vérifications   $name")
 	else
-		grep -vE '^(Godot Engine|$)' "$log"
 		total_fail=$((total_fail + 1))
-		SUMMARY+=("  ECHEC   $(grep -cE '^  ok ' "$log") vérifications   $name")
+		SUMMARY+=("  ECHEC   ${checks}/${expected} vérifications   $name")
 	fi
-	rm -f "$log"
 done
 
 echo ""

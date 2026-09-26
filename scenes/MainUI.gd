@@ -56,6 +56,11 @@ class Row extends RefCounted:
 	var title: Label
 	var subtitle: Label
 	var button: Button
+	## Second bouton facultatif, pour les lignes qui offering deux actions
+	## concurrentes (encaisser le bonus, ou le doubler contre une pub). `null`
+	## sur toutes les autres lignes : absent, il ne coûte rien en code de
+	## rafraîchissement, `if row.extra_button != null` suffit.
+	var extra_button: Button
 
 
 # ===================================================================== démarrage
@@ -701,8 +706,32 @@ func _build_settings_page() -> void:
 			Toast.push(_toast_layer, "+%s %s" % [amount.format_short(), GameManager.config.resource_name], "gold")
 		_refresh_settings()
 	)
+	# Le double par pub. `REWARD_DAILY_DOUBLE` existait dans AdService, était
+	# compté, plafonné, et crédité par `_on_ad_completed()` — mais AUCUN bouton
+	# ne l'atteignait. Le code entier était mort : la récompense, son compteur,
+	# son plafond, et sa moitié de budget commun avec le double hors-ligne.
+	var daily_double := _add_row_extra_button(daily)
+	daily_double.pressed.connect(func() -> void:
+		if not Ads.is_available(Ads.REWARD_DAILY_DOUBLE):
+			Toast.push(_toast_layer, "Indisponible pour le moment.", "warn")
+			return
+		Ads.show_rewarded(Ads.REWARD_DAILY_DOUBLE)
+	)
 	box.add_child(daily.root)
 	_settings_rows["daily"] = daily
+
+	var boost := _make_row("boost")
+	boost.title.text = "⚡ Boost de production"
+	boost.subtitle.text = "Production ×%d pendant %d minutes." % [
+		int(BOOST_AD_MULTIPLIER), int(BOOST_AD_MINUTES)]
+	boost.button.pressed.connect(func() -> void:
+		if not Ads.is_available(Ads.REWARD_PRODUCTION_BOOST):
+			Toast.push(_toast_layer, "Indisponible pour le moment.", "warn")
+			return
+		Ads.show_rewarded(Ads.REWARD_PRODUCTION_BOOST)
+	)
+	box.add_child(boost.root)
+	_settings_rows["boost"] = boost
 
 	var freebies := _make_row("freebies")
 	freebies.title.text = "🎬 Cadeau de bienvenue"
@@ -783,6 +812,27 @@ func _refresh_settings() -> void:
 		daily.button.disabled = not available
 		daily.root.add_theme_stylebox_override("panel",
 			UITheme.card(UITheme.GOLD) if available else UITheme.card_disabled())
+		# Le bouton « ×2 » est rafraîchi avec la ligne. Sans ce bloc, il restait
+		# affiché tel qu'à la construction — donc « ×2 » actif après coupement
+		# du budget, sur un bonus déjà encaissé.
+		if daily.extra_button != null:
+			daily.extra_button.text = "🎬 ×2"
+			daily.extra_button.disabled = not (available
+				and Ads.is_available(Ads.REWARD_DAILY_DOUBLE))
+
+	var boost: Row = _settings_rows.get("boost")
+	if boost != null:
+		if GameManager.has_no_ads():
+			boost.subtitle.text = "Indisponible : vous avez supprimé les pubs."
+			boost.button.text = "🚫"
+			boost.button.disabled = true
+		else:
+			var left := maxi(0, Ads.daily_cap(Ads.REWARD_PRODUCTION_BOOST)
+				- Ads.get_daily_count(Ads.REWARD_PRODUCTION_BOOST))
+			boost.subtitle.text = ("Production ×%d pendant %d minutes. Restant aujourd'hui : %d."
+				% [int(BOOST_AD_MULTIPLIER), int(BOOST_AD_MINUTES), left])
+			boost.button.text = "🎬 Regarder" if left > 0 else "✓"
+			boost.button.disabled = left <= 0 or not Ads.is_available(Ads.REWARD_PRODUCTION_BOOST)
 
 	var freebies: Row = _settings_rows.get("freebies")
 	if freebies != null:
@@ -980,15 +1030,33 @@ func _on_purchase_failed(_product_id: String, reason: String) -> void:
 func _on_ad_completed(reward_id: String) -> void:
 	match reward_id:
 		Ads.REWARD_OFFLINE_DOUBLE:
-			var gained := GameManager.claim_offline_gains(true)
-			Audio.play("achievement")
-			Toast.push(_toast_layer, "×2 !  +%s %s" % [gained.format_short(), GameManager.config.resource_name], "gold")
-			FloatingNumber.spawn(_floating_layer, _screen_center(), "×2", UITheme.GOLD, 36)
+			# `claim_offline_gains()` rend `zero` s'il n'y a plus rien en
+			# attente, et le joueur peut très bien en être là : il a regardé la
+			# pub depuis le popup, il a été mis en arrière-plan pendant ce temps,
+			# une popup est apparue à son retour, il l'a encaissée — et le
+			# `ad_completed` de la pub n'arrive qu'ensuite, sur des gains déjà
+			# consommés. Sans cette garde, l'écran affichait « ×2 !  +0 💎 »,
+			# avec le son de récompense et un « ×2 » flottant : une récompense
+			# déjà obtenue ailleurs, et facturée par une pub que le joueur venait
+			# de regarder. Les deux autres appelants de la popup testaient déjà
+			# `has_pending_offline()` ; celui-ci ne le faisait pas.
+			if GameManager.has_pending_offline():
+				var gained := GameManager.claim_offline_gains(true)
+				Audio.play("achievement")
+				Toast.push(_toast_layer, "×2 !  +%s %s" % [gained.format_short(), GameManager.config.resource_name], "gold")
+				FloatingNumber.spawn(_floating_layer, _screen_center(), "×2", UITheme.GOLD, 36)
+			else:
+				Toast.push(_toast_layer, "Ces gains ont déjà été encaissés.", "warn")
 		Ads.REWARD_PRODUCTION_BOOST:
 			GameManager.grant_temporary_boost(BOOST_AD_MULTIPLIER, BOOST_AD_MINUTES / 60.0)
 		Ads.REWARD_DAILY_DOUBLE:
-			var bonus := GameManager.claim_daily_bonus(true)
-			Toast.push(_toast_layer, "Bonus ×2 : +%s" % bonus.format_short(), "gold")
+			# Même raison : le bonus quotidien peut avoir été encaissé entre le
+			# lancement de la pub et la fin de celle-ci.
+			if GameManager.is_daily_bonus_available():
+				var bonus := GameManager.claim_daily_bonus(true)
+				Toast.push(_toast_layer, "Bonus ×2 : +%s" % bonus.format_short(), "gold")
+			else:
+				Toast.push(_toast_layer, "Bonus quotidien déjà encaissé aujourd'hui.", "warn")
 		Ads.REWARD_FREE_CRYSTALS:
 			var amount := GameManager.get_production_per_sec().mul_float(FREE_CRYSTALS_AD_SECONDS)
 			GameManager.grant_resources(amount, true)
@@ -1093,6 +1161,19 @@ func _make_row(id: String) -> Row:
 	line.add_child(row.button)
 
 	return row
+
+
+## Ajoute un second bouton à une ligne existante. La ligne la plus large, donc
+## les titres qui se wraps, sont gérés par l'autowrap du label.
+func _add_row_extra_button(row: Row) -> Button:
+	var btn := Button.new()
+	btn.custom_minimum_size = Vector2(112, 48)
+	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	btn.clip_text = true
+	btn.add_theme_font_size_override("font_size", 15)
+	row.button.get_parent().add_child(btn)
+	row.extra_button = btn
+	return btn
 
 
 func _section_header(title: String, subtitle: String) -> VBoxContainer:
