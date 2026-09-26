@@ -35,6 +35,10 @@ const SAVE_PATH := "user://idle_save.dat"
 const LEGACY_SAVE_PATH := "user://savegame.json"
 const SAVE_VERSION := 2
 const DAILY_BONUS_SECONDS := 86400.0
+
+## Délai minimal entre deux contrôles automatiques des succès, en secondes.
+## Voir _check_achievements_throttled() pour pourquoi il existe.
+const ACHIEVEMENT_CHECK_INTERVAL := 0.2
 const UI_TICK_HZ := 10.0
 
 const STAT_DEFAULTS := {
@@ -98,6 +102,8 @@ var _autosave_timer: Timer
 var _ui_tick_timer: Timer
 var _boost_active: bool = false
 var _last_write_time: float = 0.0
+var _last_achievement_check: float = -1e9
+var _achievements_dirty: bool = false
 
 
 # =============================================================== initialisation
@@ -151,6 +157,14 @@ func _process(delta: float) -> void:
 	var prod := get_production_per_sec()
 	if not prod.is_zero():
 		_grant(prod.mul_float(delta), true)
+
+	# Tentative de contrôle des successes en attente. Appelé à chaque image,
+	# mais `_check_achievements_throttled()` ne fait alors qu'une comparaison de
+	# flottants quand rien n'est en attente : c'est ce qui garantit qu'un seuil
+	# franchi par le DERNIER crédit d'une rafale est tout de même vu, même si
+	# aucun crédit ne suit. Sans cet appel, un limiteur de fréquence se
+	# transforme en perte de succès.
+	_check_achievements_throttled()
 
 	if combo_stacks > 0:
 		combo_timer -= delta
@@ -267,7 +281,59 @@ func _grant(amount: BigNum, counted: bool) -> void:
 	if counted:
 		run_earnings = run_earnings.add(amount)
 		lifetime_earnings = lifetime_earnings.add(amount)
-		_check_achievements()
+		_achievements_dirty = true
+		_check_achievements_throttled()
+
+
+## Contrôle des successes, limité en fréquence.
+##
+## `_grant()` est appelé à CHAQUE IMAGE depuis `_process()`, et
+## `_check_achievements()` parcourt les 31 succès de la configuration, chacun
+## avec une comparaison et — pour les seuils chiffrés — un `BigNum` alloué. À
+## 60 images par seconde cela fait ~2 000 allocations BigNum par seconde pour
+## un résultat qui ne change pas d'une image à l'autre : la production augmente,
+## mais aucun seuil n'est franchi pendant des secondes entières.
+##
+## Le plafond de 0,2 s rend le coût indépendant de la fréquence d'images et
+## supprime ~95 % du travail. Le délai est imperceptible : un succès est un
+## événement, pas un état, et la fenêtre de jeu est déjà prête à l'afficher.
+##
+## Les chemins d'actions du joueur appellent `_check_achievements()`
+## directement, donc sans délai : un achat qui débloque un succès le débloque
+## à l'instant de l'achat, pas 0,2 s plus tard.
+## Contrôle des succès, limité en fréquence ET assorti d'un indicateur
+## « à vérifier ».
+##
+## `_grant()` est appelé à CHAQUE IMAGE depuis `_process()`, et
+## `_check_achievements()` parcourt les 31 succès de la configuration, chacun
+## avec une comparaison et — pour les seuils chiffrés — un `BigNum` alloué. À
+## 60 images par seconde cela fait ~2 000 allocations BigNum par seconde pour
+## un résultat qui ne change pas d'une image à l'autre : la production augmente,
+## mais aucun seuil n'est franchi pendant des secondes entières.
+##
+## Le cadencement à 0,2 s rend le coût indépendant de la fréquence d'images et
+## supprime la quasi-totalité du travail. Le délai est imperceptible : un succès
+## est un événement, pas un état.
+##
+## L'indicateur n'est pas un détail. Un limiteur seul PERD un succès : si la
+## rafale de crédits qui franchit un seuil se termine pendant la fenêtre, plus
+## rien ne déclenche de contrôle et le joueur ne voit jamais sa récompense. Le
+## test « limiteur de succès » de tests/test_game.gd existe pour ça, et il a
+## échoué tant que l'indicateur manquait.
+##
+## Les chemins d'actions du joueur appellent `_check_achievements()`
+## directement, donc sans délai : un achat qui débloque un succès le débloque à
+## l'instant de l'achat, pas 0,2 s plus tard.
+func _check_achievements_throttled() -> void:
+	if not _achievements_dirty:
+		return
+	# `get_ticks_msec()` et non l'horloge système : ce cadencement mesure un
+	# coût de calcul, il ne doit donc pas sauter une heure quand l'horloge
+	# système est ajustée — ni s'arrêter si elle recule.
+	var now := Time.get_ticks_msec() / 1000.0
+	if now - _last_achievement_check < ACHIEVEMENT_CHECK_INTERVAL:
+		return
+	_check_achievements()
 
 
 ## Attribution externe de ressources (récompense de pub, etc.).
@@ -590,6 +656,13 @@ func get_achievements_unlocked_count() -> int:
 
 
 func _check_achievements() -> void:
+	# Point unique de remise à zéro : `_check_achievements()` est aussi bien
+	# appelé depuis `_check_achievements_throttled()` que directement par les
+	# actions du joueur, et les deux chemins doivent laisser le même état derrière
+	# eux. Le faire à chaque appelant serait le même piège que les deux
+	# propriétaires de `_apply_fresh_state()`.
+	_achievements_dirty = false
+	_last_achievement_check = Time.get_ticks_msec() / 1000.0
 	# Boucle plutôt que récursion : une récompense peut débloquer un autre succès,
 	# et la profondeur est bornée pour qu'un cycle improbable ne boucle pas.
 	for _pass in 8:
@@ -665,10 +738,22 @@ func get_daily_bonus_time_left() -> float:
 
 
 func get_daily_bonus_amount() -> BigNum:
-	# Une heure de production, avec un plancher pour les tout débuts.
-	var amount := get_production_per_sec().mul_float(3600.0)
-	var floor_amount := config.start_resources
-	if amount.lt(floor_amount):
+	# Une heure de production, avec un plancher de sécurité.
+	#
+	# Le plancher ne vient PAS de `start_resources` : c'était le cas, et c'est
+	# une erreur de sens — « ce que reçoit un joueur neuf » n'a rien à voir avec
+	# « la plus petite somme qui vaille d'être pressée ». Concrètement
+	# `start_resources` vaut 0, donc la branche ne se déclenchait jamais et le
+	# commentaire annonçait une garantie inexistante. La durée était de plus
+	# codée en dur (3600 s) au lieu d'être dans la configuration.
+	#
+	# Les deux viennent maintenant de `daily_bonus`, avec des valeurs par défaut
+	# identiques à celles qui étaient codées en dur : le comportement observable
+	# ne change pas, mais la branche est atteignable et le réglage est possible.
+	var hours := maxf(0.0, float(config.daily_bonus.get("hours", 1.0)))
+	var amount := get_production_per_sec().mul_float(hours * 3600.0)
+	var floor_amount := BigNum.from_float(maxf(0.0, float(config.daily_bonus.get("floor", 0.0))))
+	if floor_amount.is_positive() and amount.lt(floor_amount):
 		amount = floor_amount
 	return amount
 

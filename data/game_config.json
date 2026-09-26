@@ -113,6 +113,11 @@
 	]
   },
 
+  "daily_bonus": {
+	"hours": 1.0,
+	"floor": 0.0
+  },
+
   "buildings": [
 	{ "id": "b1", "name": "Pioche automatique", "desc": "Un bras mécanique qui creuse sans dormir.", "icon": "⛏️", "base_cost": 15.0, "cost_multiplier": 1.07, "production_per_sec": 0.5, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },
 	{ "id": "b2", "name": "Foreuse basique", "desc": "Premier forage vertical de l'histoire de la société.", "icon": "🛠️", "base_cost": 100.0, "cost_multiplier": 1.08, "production_per_sec": 4.0, "unlock_prestige": 0, "milestone_every": 10, "milestone_mult": 2.0 },

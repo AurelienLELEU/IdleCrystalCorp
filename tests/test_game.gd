@@ -54,6 +54,11 @@ func _run() -> void:
 	_test_offline_cap()
 	_test_offline_never_credited_automatically()
 	_test_achievements()
+	# `await` INDISPENSABLE, et c'est un piège : sans lui, la fonction suspend
+	# sur son `process_frame`, `_run()` continue, appelle `quit(0)` et le
+	# process meurt. Le test rapportait 2 vérifications au lieu de 3, toutes
+	# vertes, et rien n'indiquait que la troisième n'avait jamais eu lieu.
+	await _test_achievements_survive_the_throttle()
 	_test_prestige()
 	_test_store_no_ads()
 	_test_boost()
@@ -175,10 +180,37 @@ func _test_buy_building() -> void:
 		return
 	var before_count: int = _game.call("get_building_count", id)
 	var before_res := _resources()
+	# `buy_building()` déclenche les succès à la fin, donc des récompenses
+	# peuvent être créditées DANS le même appel que le débit. Comparer les
+	# soldes bruts revient alors à tester l'ordre interne des deux opérations,
+	# pas le fait que l'achat a été payé. On mesure donc le débit en tenant
+	# compte des récompenses, via le signal — la même technique que pour
+	# l'absence courte, et pour la même raison.
+	var rewards := [0.0]
+	var on_unlocked := func(aid: String, _reward_text: String) -> void:
+		rewards[0] += _achievement_reward_value(aid)
+	_game.achievement_unlocked.connect(on_unlocked)
 	var bought: int = _game.call("buy_building", id, 1)
+	if _game.achievement_unlocked.is_connected(on_unlocked):
+		_game.achievement_unlocked.disconnect(on_unlocked)
+
 	_check(bought == 1, "achat : 1 bâtiment acheté")
 	_check(_game.call("get_building_count", id) == before_count + 1, "achat : compteur incrémenté")
-	_check(_resources().lt(before_res), "achat : ressources débitées")
+	# `get_building_cost()` renverrait le prix du bâtiment SUIVANT : le prix
+	# payé dépend de combien il en existait déjà. `_building_cost_at()` est la
+	# fonction privée que `buy_building()` appelle elle-même, avec le même index.
+	var cost: BigNum = _game.call("_building_cost_at", id, before_count)
+	# `après + récompenses - prix == avant` serait FAUX : les récompenses sont
+	# déjà dans le solde final, les retrancherait deux fois. La relation est
+	# `après == avant - prix + récompenses`.
+	_check(_resources().sub(BigNum.from_float(rewards[0])).add(cost).equals(before_res),
+		"achat : débit exact du prix (récompenses +%s, prix %s, avant %s, après %s)" % [
+			BigNum.from_float(rewards[0]).format_short(), cost.format_short(),
+			before_res.format_short(), _resources().format_short()])
+	# Garde-fou : le solde ne peut jamais dépasser ce que l'achat et les succès
+	# expliquent. Attraperait un signe inversé ou un crédit fantôme.
+	_check(_resources().lte(before_res.add(BigNum.from_float(rewards[0]))),
+		"achat : rien n'a été crédité au-delà des succès expliqués")
 	_check(_production().gt(BigNum.zero()),
 		"achat : la production démarre dès le premier bâtiment")
 
@@ -624,6 +656,74 @@ func _test_achievements() -> void:
 		"succès : une récompense non comptée n'entre pas dans le cumul")
 
 
+## Le contrôle des succès est limité en fréquence, parce que `_grant()` est
+## appelé à chaque image. Ce test existe pour prouver que le limiteur ne peut
+## ni en RETIRER un, ni le retarder indéfiniment.
+##
+## Les gains sont versés par petits paquets, comme le fait `_process()`, et le
+## seuil n'est franchi qu'au tout dernier. Une rafale entièrement contenue dans
+## la fenêtre de 0,2 s est donc intégralement ignorée par le limiteur : ce qui
+## doit la rattraper, c'est l'indicateur « à vérifier » et l'appel de chaque
+## image. Sans l'un des deux, le succès n'est jamais déblocé.
+func _test_achievements_survive_the_throttle() -> void:
+	_reset()
+	var achievements: Array[Dictionary] = (_game.get("config") as GameConfig).achievements
+	# Un seuil « gains cumulés » précis, pour savoir exactement quand le
+	# déblocage est dû.
+	var target: Dictionary = {}
+	for a in achievements:
+		if str(a.get("type", "")) == "lifetime" and float(a.get("threshold", 0.0)) > 0.0:
+			target = a
+			break
+	if target.is_empty():
+		_check(false, "limiteur de succès : la config contient un succès de cumul")
+		return
+	var target_id: String = str(target.get("id", ""))
+	var threshold := float(target.get("threshold", 0.0))
+	_check(not _game.call("is_achievement_unlocked", target_id),
+		"limiteur de succès : %s est verrouillé au départ" % target_id)
+
+	# 40 paquets, tous dans la même image : le limiteur en écarte la totalité.
+	var step := threshold / 40.0
+	for _i in 40:
+		_game.call("grant_resources", BigNum.from_float(step), true)
+	_check(float(_game.get("lifetime_earnings").to_float()) >= threshold,
+		"limiteur de succès : le seuil de cumul est bien atteint (%.0f >= %.0f)" % [
+			_game.get("lifetime_earnings").to_float(), threshold])
+
+	# Le déblocage n'a pas à être immédiat — 0,2 s de retard sont invisibles —
+	# mais il doit arriver, et vite.
+	#
+	# On attend une durée RÉELLE, et non un nombre d'images : le limiteur est
+	# temporel, et en mode headless les images s'enchaînent à plusieurs
+	# milliers par seconde. Un test comptant les images aurait cru le limiteur
+	# rompu alors qu'il ne s'était simplement pas écoulé 0,2 s — puis l'aurait
+	# laissé passer si la machine s'était trouvée plus lente.
+	await create_timer(0.5).timeout
+	_check(_game.call("is_achievement_unlocked", target_id),
+		"limiteur de succès : %s se débloque malgré la rafale" % target_id)
+
+	# Et le délai ne peut pas avoir été supprimé au passage : le limiteur doit
+	# rester inférieur à ce que le test attend, sinon ce test ne prouve rien.
+	var interval := _read_achievement_interval()
+	_check(interval > 0.0 and interval < 0.5,
+		"limiteur de succès : l'intervalle (%.3f s) reste sous le délai du test" % interval)
+
+
+## Lit `ACHIEVEMENT_CHECK_INTERVAL` depuis le SOURCE de GameManager. Une
+## constante de script n'est pas lisible par `get()` sur une instance, et
+## recopier la valeur ici ferait que le test mesurerait un délai différent de
+## celui que le jeu applique — c'est-à-dire ne mesurerait rien.
+func _read_achievement_interval() -> float:
+	var f := FileAccess.get_file_as_string("res://core_engine/GameManager.gd")
+	var from := f.find("const ACHIEVEMENT_CHECK_INTERVAL")
+	if from < 0:
+		return -1.0
+	var line := f.substr(from, f.find("\n", from) - from)
+	var value := line.split(":= ")[-1].strip_edges()
+	return float(value) if value.is_valid_float() else -1.0
+
+
 func _test_prestige() -> void:
 	_reset()
 	_check(not _game.call("can_perform_prestige"), "ascension : impossible au départ")
@@ -641,13 +741,27 @@ func _test_prestige() -> void:
 	_check(float(preview.get("next_multiplier", 0.0)) > float(preview.get("current_multiplier", 0.0)),
 		"ascension : le multiplicateur augmente")
 
+	# `perform_prestige()` vide les ressources PUIS déclenche les succès, dont
+	# certains récompensent en ressources. Le solde n'est donc pas nul : il vaut
+	# exactement la somme de ces récompenses. Vérifier `is_zero()` mesurait un
+	# état qui n'existe pas — et le test deux lignes plus haut admet déjà que
+	# des succès se déclenchent (« au moins %d après succès »).
+	var rewards := [0.0]
+	var on_unlocked := func(aid: String, _reward_text: String) -> void:
+		rewards[0] += _achievement_reward_value(aid)
+	_game.achievement_unlocked.connect(on_unlocked)
 	var gained: int = _game.call("perform_prestige")
+	if _game.achievement_unlocked.is_connected(on_unlocked):
+		_game.achievement_unlocked.disconnect(on_unlocked)
+
 	_check(gained > 0, "ascension : performed (%d points)" % gained)
 	_check(int(_game.get("prestige_points")) >= gained,
 		"ascension : points crédités (%d, au moins %d après succès)"
 			% [int(_game.get("prestige_points")), gained])
 	_check(int(_game.get("prestige_count")) == 1, "ascension : compteur incrémenté")
-	_check(_resources().is_zero(), "ascension : ressources remises à zéro")
+	_check(_resources().equals(BigNum.from_float(rewards[0])),
+		"ascension : ressources remises à zéro, aux seules récompenses de succès près (solde %s, récompenses %s)" % [
+			_resources().format_short(), BigNum.from_float(rewards[0]).format_short()])
 	_check(_game.call("get_building_count", "b1") == 0, "ascension : bâtiments remis à zéro")
 	_check(_game.get("run_earnings").is_zero(), "ascension : gains de run remis à zéro")
 	_check(_production().gt(BigNum.zero()) or true, "ascension : production recalculée")

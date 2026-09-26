@@ -149,24 +149,28 @@ func add(o: BigNum) -> BigNum:
 	return BigNum.make(hi.mantissa + lo.mantissa * pow(10.0, -float(d)), hi.exponent)
 
 
+## Soustraction, écrite comme une addition de l'opposé.
+##
+## Elle était implémentée à la main, en échangeant `self` et `o` selon leurs
+## exposants, et le coefficient du terme de plus grand exposant n'était jamais
+## inversé lors de cet échange. Conséquence : `5 - 100000` valait `100005`, et
+## tout le domaine des résultats négatifs était faux.
+##
+## Le domaine n'était pas atteint par le jeu — les trois appelants comparent
+## avant de soustraire, donc `self ≥ o`, donc jamais d'échange — ce qui rendait
+## le défaut invisible depuis les tests. Il ne l'est plus : `add()` est
+## commutative par construction et n'a qu'un seul chemin, sans signe à
+## suivre à la main.
 func sub(o: BigNum) -> BigNum:
-	if o == null or o.is_zero():
+	if o == null:
 		return copy()
-	if is_zero():
-		return BigNum.make(-o.mantissa, o.exponent)
-	var hi := self
-	var lo := o
-	# hi - lo : le terme à retrancher est de signe négatif sauf si l'ordre des
-	# exposants nous a fait échanger self et o.
-	var sign := -1.0
-	if lo.exponent > hi.exponent:
-		hi = o
-		lo = self
-		sign = 1.0
-	var d := hi.exponent - lo.exponent
-	if d > PRECISION_DIGITS:
-		return hi.copy()
-	return BigNum.make(hi.mantissa + sign * lo.mantissa * pow(10.0, -float(d)), hi.exponent)
+	return add(o.negated())
+
+
+## L'opposé. `make()` normalise déjà le signe dans la mantisse, donc il n'y a
+## rien à propager à l'exposant.
+func negated() -> BigNum:
+	return BigNum.make(-mantissa, exponent)
 
 
 func mul(o: BigNum) -> BigNum:
@@ -240,7 +244,21 @@ func cmp(o: BigNum) -> int:
 		return 1 if self_neg else -1
 	if mantissa == o.mantissa:
 		return 0
-	return -1 if self_neg else (1 if mantissa > o.mantissa else -1)
+	# Exposant identique, donc les deux valeurs sont du même signe. La
+	# comparaison des MANTISSES suffit dans les deux cas, et c'est ce qui la rend
+	# correcte : pour des positifs, une plus grande mantisse est une plus
+	# grande valeur ; pour des négatifs, l'inverse, et la même expression donne
+	# le bon résultat par construction.
+	#
+	# La ligne était `-1 if self_neg else (1 if mantissa > o.mantissa else -1)`,
+	# c'est-à-dire un raccourci qui retournait -1 dès que `self` était négatif,
+	# SANS regarder la mantisse. `-1000.cmp(-9000)` valait donc -1 : `a.lt(b)`
+	# et `b.lt(a)` étaient tous deux vrais, et `gt()` tous deux faux — le
+	# contrat d'ordre violé, donc tout `sort()` ou `max()` sur des BigNum
+	# négatifs donnait un résultat faux. Les branches `d > 0` / `d < 0`
+	# ci-dessus sont, elles, correctes, ce qui explique que le test existant —
+	# qui n'utilise que des exposants différents — ne le voyait pas.
+	return 1 if mantissa > o.mantissa else -1
 
 
 func equals(o: BigNum) -> bool:
@@ -275,8 +293,25 @@ func to_float() -> float:
 	return mantissa * pow(10.0, float(exponent))
 
 
-## Saturé à INT64_MAX : un idle game ne manipule jamais un compteur au-delà, et
-## int(inf) est un comportement indéfini en GDScript.
+## Convertit en entier 64 bits, SATURÉ, et ramené à zéro si la valeur est
+## négative.
+##
+## ## L'asymétrie avec `to_float()` est volontaire, et c'est un piège
+##
+## `to_float()` rend -7 pour une valeur de -7. `to_int()` rend **0**. Ce n'est
+## pas une saturation, c'est une politique : une grandeur de jeu — un compteur,
+## un solde — n'est jamais négative, et une conversion qui rendrait une valeur
+## fausse n'est pas une conversion.
+##
+## Le piège est que les deux fonctions portent le même nom qu'un seul mot de
+## différence. `sub()` rend maintenant un résultat négatif CORRECT (il rendait
+## `+99995` pour `5 - 100000` avant d'être réécrit en `add(o.negated())`), donc
+## un appelant futur pourrait écrire `a.sub(b).to_int()` et lire 0 sans
+## comprendre pourquoi. La saturation positive, elle, est un vrai débordement
+## d'entier et vaut INT64_MAX.
+##
+## `to_int()` n'a aucun appelant dans le jeu ; `tests/test_bignum.gd` verrouille
+## les deux comportements pour qu'un changement ultérieur soit délibéré.
 func to_int() -> int:
 	if is_zero() or is_negative():
 		return 0
@@ -333,7 +368,12 @@ func format_short(decimals: int = 2) -> String:
 				suffix = SUFFIXES[tier]
 		else:
 			num = _sci(m, e, decimals)
-	return ("-" + num) if neg else (num + suffix)
+	# Le suffixe d'échelle va avec le NOMBRE, pas seulement avec le signe
+	# positif. La ligne rendait `("-" + num)` dans le cas négatif et oubliait
+	# `suffix` : `-1.5e6` s'affichait « -1.5 » au lieu de « -1.5 M ». Ce n'est
+	# pas cosmétique — trois ordres de grandeur disparaissent, et un joueur qui
+	# lit un solde négatif lit un nombre faux.
+	return ("-" + num + suffix) if neg else (num + suffix)
 
 
 ## Nombre décimal sans zéros de fin : 1.20 -> "1.2", 0.50 -> "0.5"

@@ -113,8 +113,118 @@ func _run() -> void:
 	orig.add(BigNum.from_int(5))
 	_eq_str("immuabilite", orig.to_int_string(), "10")
 
+	_negative_domain()
 	print("  -> %d reussis, %d echecs" % [_passed, _failed])
 	quit(1 if _failed > 0 else 0)
+
+
+## Tout le traitement des valeurs négatives était faux, sur trois fonctions
+## distinctes, et la suite ci-dessus ne le voyait pas : elle n'exerce que des
+## couples d'exposants DIFFÉRENTS pour `cmp()` — les branches `d > 0` et
+## `d < 0`, qui sont justes — et aucun `sub()` dont le résultat devrait être
+## négatif. Ce que les 53 vérifications précédentes prenaient pour une
+## couverture du domaine négatif.
+func _negative_domain() -> void:
+	# --- sub() : le coefficient du terme de plus grand exposant n'était pas
+	# inversé lors de l'échange, donc TOUT résultat négatif était faux.
+	# `5 - 100000` valait `100005`.
+	_eq_str("sub 5 - 100000", BigNum.from_int(5).sub(BigNum.from_int(100000)).to_int_string(), "-99995")
+	_eq_str("sub 1 - 42", BigNum.from_int(1).sub(BigNum.from_int(42)).to_int_string(), "-41")
+	_eq_str("sub 0 - 7", BigNum.zero().sub(BigNum.from_int(7)).to_int_string(), "-7")
+	_eq_str("sub 7 - 0", BigNum.from_int(7).sub(BigNum.zero()).to_int_string(), "7")
+	_eq_str("sub 7 - -5", BigNum.from_int(7).sub(BigNum.from_int(-5)).to_int_string(), "12")
+	_eq_str("sub -5 - 7", BigNum.from_int(-5).sub(BigNum.from_int(7)).to_int_string(), "-12")
+	_eq_str("sub 1e30 - 1e20", BigNum.parse("1e30").sub(BigNum.parse("1e20")).format_short(), "1 No")
+	# Le domaine positif ne doit pas avoir bougé.
+	_eq_str("sub 100000 - 5", BigNum.from_int(100000).sub(BigNum.from_int(5)).to_int_string(), "99995")
+
+	# Antisymétrie sur tout le domaine, y compris les exposants très écartés.
+	#
+	# Comparaison à TOLÉRANCE, et non à l'égalité entière : `add()` écarte
+	# volontairement un terme de plus de PRECISION_DIGITS (17) décimales en
+	# dessous du terme dominant — c'est le test « gain negligeable ignore » ci-
+	# dessus, et c'est la bonne politique pour une arithmétique de gains. Donc
+	# `-1000000 - 1` vaut bien `-1000000`, pas `-1000001`. Exiger l'exactitude
+	# ici reviendrait à casser cette politique pour satisfaire un test.
+	var vals := [-1000000, -42, -1, 0, 1, 42, 1000000]
+	for a: int in vals:
+		for b: int in vals:
+			if a == b:
+				continue
+			var want := float(a - b)
+			var got := BigNum.from_int(a).sub(BigNum.from_int(b)).to_float()
+			_check("sub antisymetrique %d-%d" % [a, b],
+				absf(got - want) <= maxf(1.0, absf(want) * 1e-15),
+				"-> obtenu %s, attendu %d" % [BigNum.from_float(got).format_short(), a - b])
+	# Le signe, lui, doit être exact : jamais tolérant. C'est ce qui était faux
+	# avant, et c'est le seul endroit où l'erreur se voyait à l'écran.
+	for a: int in vals:
+		for b: int in vals:
+			if a == b:
+				continue
+			var r := BigNum.from_int(a).sub(BigNum.from_int(b))
+			_check("sub signe exact %d-%d" % [a, b],
+				(r.is_negative() and a < b) or (r.is_zero() and a == b) or (not r.is_negative() and a > b),
+				"-> signe %s" % ("-" if r.is_negative() else "+"))
+
+	# --- cmp() : deux négatifs de même exposant se déclaraient mutuellement
+	# plus petits, parce que la branche finale retournait -1 dès que `self` était
+	# négatif, sans regarder la mantisse. `-1000.cmp(-9000)` valait -1.
+	var n9 := BigNum.make(-9.0, 3)
+	var n1 := BigNum.make(-1.0, 3)
+	_check("cmp negatif meme exposant, -9000 < -1000", n9.cmp(n1) == -1, "-> %d" % n9.cmp(n1))
+	_check("cmp negatif meme exposant, -1000 > -9000", n1.cmp(n9) == 1, "-> %d" % n1.cmp(n9))
+	_check("lt() n'est vrai que dans un sens", not (n9.lt(n1) and n1.lt(n9)))
+	_check("gt() n'est vrai que dans un sens", not (n9.gt(n1) and n1.gt(n9)))
+	_check("equals() sur identiques negatifs", n9.equals(BigNum.make(-9.0, 3)))
+	_check("antisymetrie de cmp sur tout le domaine", _cmp_antisymmetric())
+
+	# --- format_short() : le suffixe d'échelle était perdu sur les négatifs.
+	# Trois ordres de grandeur disparaissaient. C'est un numéro FAUX affiché,
+	# pas une absence de décoration.
+	_eq_str("format_short negatif million", BigNum.make(-1.5, 6).format_short(), "-1.5 M")
+	_eq_str("format_short positif million", BigNum.make(1.5, 6).format_short(), "1.5 M")
+	_eq_str("format_short negatif bilion", BigNum.make(-2.5, 12).format_short(), "-2.5 Tn")
+	_eq_str("format_short negatif mille", BigNum.make(-1.0, 3).format_short(), "-1 K")
+	_eq_str("format_short negatif sans suffixe", BigNum.make(-1.5, 0).format_short(), "-1.5")
+	_eq_str("format_short zero", BigNum.make(-0.0, 0).format_short(), "0")
+
+	# --- to_int() : le ramassage à zéro des négatifs est VOLONTAIRE, mais il
+	# contredit `to_float()`, qui rend -7 pour -7. Verrouiller les deux évite
+	# qu'un appelant futur s'appuie sur l'un en croyant l'autre.
+	_check("to_int ramasse les negatifs a zero", BigNum.make(-7.0, 0).to_int() == 0)
+	_check("to_float, lui, rend la valeur", BigNum.make(-7.0, 0).to_float() == -7.0)
+	_check("to_int_string rend la valeur negative", BigNum.make(-7.0, 0).to_int_string() == "-7")
+	_check("sub negatif puis to_int : le piege est documente",
+		BigNum.zero().sub(BigNum.from_int(7)).to_int() == 0
+			and BigNum.zero().sub(BigNum.from_int(7)).to_int_string() == "-7")
+
+
+## `cmp` doit être antisymétrique sur tout couple : `a.cmp(b)` et `b.cmp(a)` ne
+## peuvent être que des opposés, ou tous deux nuls. C'est le contrat d'ordre,
+## pas une valeur : un `sort()` ou un `max()` sur des BigNum négatifs dépend
+## entièrement de cette propriété, et une violation fait que `a < b` et
+## `b < a` sont vrais en même temps.
+func _cmp_antisymmetric() -> bool:
+	var pairs := [
+		[BigNum.from_int(-1), BigNum.from_int(1)],
+		[BigNum.make(-9.0, 3), BigNum.make(-1.0, 3)],
+		[BigNum.make(-1.0, 3), BigNum.make(-9.0, 3)],
+		[BigNum.make(-5.0, 2), BigNum.make(-5.0, 3)],
+		[BigNum.make(-5.0, 3), BigNum.make(-5.0, 2)],
+		[BigNum.make(-1.0, 0), BigNum.make(-1.0, 0)],
+		[BigNum.zero(), BigNum.from_int(-1)],
+		[BigNum.from_int(-1), BigNum.zero()],
+		[BigNum.parse("1e40"), BigNum.parse("1e-40")],
+		[BigNum.parse("-1e40"), BigNum.parse("1e-40")],
+		[BigNum.parse("-1e40"), BigNum.parse("-1e-50")],
+	]
+	for p: Array in pairs:
+		var a: BigNum = p[0]
+		var b: BigNum = p[1]
+		if a.cmp(b) != -b.cmp(a):
+			return false
+	return true
 
 
 func _init() -> void:

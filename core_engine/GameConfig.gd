@@ -43,6 +43,7 @@ var combo: Dictionary = {}
 var prestige: Dictionary = {}
 var ads: Dictionary = {}
 var store: Dictionary = {}
+var daily_bonus: Dictionary = {}
 
 var load_error: String = ""
 
@@ -119,6 +120,10 @@ func _from_dict(d: Dictionary) -> void:
 	store = _section(d, "store", {"mock": true})
 	store_products = _normalize_list(store.get("products", []))
 	store_products_by_id = _index(store_products)
+	daily_bonus = _section(d, "daily_bonus", {
+		"hours": 1.0,
+		"floor": 0.0,
+	})
 
 
 # ------------------------------------------------------------------ accès indexé
