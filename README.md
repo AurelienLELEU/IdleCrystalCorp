@@ -642,9 +642,33 @@ pendant un remplacement de fichier.
 
 ## Format de sauvegarde
 
-- `user://idle_save.dat` — binaire, en-tête magique `IDLS`, `SAVE_VERSION := 2`
-- `user://savegame.json` — ancien format, lu et migré automatiquement au premier
-  lancement vers la version 2, puis sauvegardé une fois en copie de sécurité
+- `user://idle_save.dat` — binaire, en-tête magique `IDLS`, `CURRENT_VERSION := 3`
+- `user://savegame.json` — ancien format (v1), lu et migré automatiquement au
+  premier lancement vers le format courant, puis sauvegardé une fois en copie de
+  sécurité
+
+L'en-tête v3 fait 13 octets : `IDLS`, la version, la longueur de la charge utile
+sur 4 octets, puis son CRC32 sur 4 octets. Une sauvegarde v2 (en-tête de 5
+octets, sans longueur ni CRC) reste lisible, avec un avertissement : refuser une
+sauvegarde pour un défaut de format qu'aucun octet de son contenu ne prouve
+reviendrait à punir le joueur d'une version antérieure du jeu. Plus rien
+n'écrit ce format.
+
+Le CRC est là parce que `var_to_bytes()` ne le fait pas. Mesuré sur une
+sauvegarde réelle, une inversion d'un seul bit dans la charge utile se
+reconformait **sans erreur** : 31 cas refusés sur 144, et **21 sauvegardes
+acceptées avec une valeur fausse**. Un compteur de bâtiments passé de 42 à 43 est
+invisible, et l'autosave réécrivait ensuite la version fausse par-dessus la
+vraie. `tests/test_save_codec.gd` vérifie maintenant, pour chaque octet et
+plusieurs masques, que toute inversion est SOIT refusée, SOIT redécodée à
+l'identique — avec un contrôle d'écho, sans quoi un décodeur qui refuse tout
+passerait aussi.
+
+Une charge utile syntaxiquement correcte mais incomplète est refusée elle aussi,
+et part en quarantaine comme une corruption. Sans cela, un `{}` passait,
+`GameManager` comblait les champs manquants, le joueur repartait d'une partie
+neuve et l'autosave réécrivait le fichier vingt secondes plus tard : perte
+totale, invisible, irrécupérable.
 
 L'écriture est **atomique** : le fichier est écrit en `.tmp` puis renommé. Un
 tué au milieu de l'écriture ne peut pas corrompre la sauvegarde. Un limiteur de

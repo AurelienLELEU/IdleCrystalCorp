@@ -202,8 +202,23 @@ func _test_corrupt_save_is_quarantined() -> void:
 		"sauvegarde corrompue : une sauvegarde neuve a bien pu être écrite ensuite")
 	_game.call("_apply_fresh_state")
 	_game.call("_load_game")
-	_check(_resources().eq(BigNum.from_float(42.0)),
-		"sauvegarde corrompue : la reprise fonctionne, la progression repart")
+	# `equals()`, pas `eq()` : `eq` n'existe pas sur `BigNum`, et un appel de
+	# méthode absente ne lève RIEN en GDScript. La suite perdait donc cette
+	# vérification ET les deux suivantes, et annonçait quand même « 0 échec » avec
+	# 26 vérifications au lieu de 28. C'est la garde de comptage de
+	# `tests/run_all.sh` qui l'a montré — pas le test lui-même, qui ne pouvait
+	# pas le voir puisqu'il n'allait pas jusqu'au bout.
+	#
+	# Et une fois exécutée, elle a échoué : la production continue entre
+	# l'écriture et la relecture, donc une égalité stricte est fausse par
+	# construction. Mesuré : 42,000469 pour 42, soit 11 ppm — l'écart de quelques
+	# images entre le `save_game()` et le `_load_game()`. D'où une tolérance
+	# relative, comme partout ailleurs dans ces tests, et non un arrondi.
+	var expected := BigNum.from_float(42.0)
+	var drift := _resources().sub(expected)
+	_check(drift.lt(expected.mul_float(0.01)),
+		"sauvegarde corrompue : la reprise fonctionne, la progression repart (%s, écart %.2f ppm)"
+			% [_resources().format_short(), absf(drift.to_float() / 42.0) * 1e6])
 
 	for p in _quarantined_paths():
 		_remove(p)
