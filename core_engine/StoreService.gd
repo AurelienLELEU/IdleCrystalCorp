@@ -31,6 +31,15 @@ var _owned: Dictionary = {}
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# La remise à zéro du joueur ne doit pas annuler un achat payé. Ce
+	# branchement est ici, et non dans GameManager, parce que c'est le Store qui
+	# possède la notion de droit : GameManager ne doit rien savoir du SDK.
+	#
+	# Il est branché AVANT le retour anticipé sur `ClassDB`, sinon le jeu sans
+	# extension native — c'est-à-dire le jeu en développement — perdait ses
+	# droits, alors que c'est justement là qu'on teste la remise à zéro.
+	if not GameManager.game_reset.is_connected(reapply_entitlements):
+		GameManager.game_reset.connect(reapply_entitlements)
 	if not ClassDB.class_exists(PLUGIN_CLASS):
 		_plugin = null
 		return
@@ -115,13 +124,41 @@ func _internal_id_for(native_product_id: String) -> String:
 ## Demande au SDK les achats déjà possédés. Appelé au démarrage : un joueur
 ## qui réinstalle l'application doit retrouver ses droits sans racheter.
 func refresh_entitlements() -> void:
-	if _plugin == null or not _plugin.has_method("is_purchased"):
+	reapply_entitlements()
+
+
+## Réapplique au jeu les droits qu'il a déjà payés, sans repasser par le SDK.
+##
+## C'est le correctif du bug le plus coûteux d'un jeu à achats : le joueur
+## achète « Supprimer les pubs », appuie sur « tout effacer », et
+## `GameManager._apply_fresh_state()` remettait `flags` à `{"no_ads": false}`.
+## Les pubs réapparaissaient et il devait racheter 3,99 €. Pire, la boutique
+## continuait d'afficher le produit comme possédé et désactivé — l'interface
+## annonçait un droit qu'elle n'accordait plus.
+##
+## `is_purchased()` interroge déjà l'état local PUIS le SDK, donc cette
+## ré-application fonctionne dans les deux modes et survit à une réinstallation.
+## Branchée sur `game_reset` : `hard_reset()` est le seul chemin qui efface les
+## drapeaux, donc c'est le seul moment où les droits ont besoin de revenir.
+func reapply_entitlements() -> void:
+	var game: Variant = _game()
+	if game == null:
 		return
+	var restored: Array[String] = []
 	for item in get_products():
-		if str(item.get("type", "consumable")) == "entitlement":
-			var native_id := str(item.get("product_id", ""))
-			if _plugin.call("is_purchased", native_id):
-				_grant(str(item.get("id", "")))
+		if str(item.get("type", "consumable")) != "entitlement":
+			continue
+		var id := str(item.get("id", ""))
+		if id.is_empty() or not is_purchased(id):
+			continue
+		restored.append(id)
+		# `silent` : ce n'est pas un achat, c'est un droit qui revient. Sans lui,
+		# chaque remise à zéro rejouerait « Pubs supprimées, merci ! » comme si
+		# le joueur venait de payer une seconde fois.
+		game.call("grant_store_product", id, true)
+	if not restored.is_empty():
+		GameManager.notify(
+			"Vos achats restent actifs après la réinitialisation.", "success")
 
 
 ## Prix affiché, au format de la devise locale. C'est le SDK qui parle : le
@@ -198,14 +235,38 @@ func can_purchase(product_id: String) -> bool:
 	return true
 
 
-## Déclenche l'achat. En mode mock, émet purchase_requested : c'est l'UI qui
-## affiche la confirmation, puis appelle complete_mock_purchase().
-func purchase(product_id: String) -> void:
+## Point d'entrée de l'UI : demande un achat, sans rien acheter.
+##
+## C'est cette méthode que le bouton d'un produit appelle, et elle émet
+## `purchase_requested` dans les DEUX modes. La feuille StoreKit s'ouvre donc
+## derrière l'écran de confirmation, sur appareil comme en simulation.
+##
+## Elle n'émettait qu'en mode mock : le bouton de produit partait
+## directement sur `IdleStore.purchase()` et la feuille de paiement s'ouvrait
+## au premier tap, sans nom de produit, sans prix affiché, sans bouton
+## « Annuler », sans « le jeu reste entièrement jouable et gratuit ». La
+## confirmation que ce fichier déclare en « ligne rouge assumée » (ligne 8-12)
+## était du code mort de 21 lignes hors simulation. `tests/test_plugin_contract.gd`
+## affirmait ce comportement comme correct, donc les tests passaient dessus.
+func request_purchase(product_id: String) -> void:
+	if not can_purchase(product_id):
+		purchase_failed.emit(product_id, "déjà possédé ou indisponible")
+		return
+	purchase_requested.emit(product_id)
+
+
+## Exécute l'achat. Appelé par le bouton « Acheter » de l'écran de
+## confirmation, une fois que le joueur a vu le nom et le prix.
+##
+## Séparée de `request_purchase()` pour que la confirmation soit un point de
+## passage obligatoire, et non une coïncidence de la branche mock.
+func submit_purchase(product_id: String) -> void:
 	if not can_purchase(product_id):
 		purchase_failed.emit(product_id, "déjà possédé ou indisponible")
 		return
 	if mock or _plugin == null:
-		purchase_requested.emit(product_id)
+		_grant(product_id)
+		purchase_completed.emit(product_id)
 		return
 	if _plugin.has_method("purchase"):
 		_plugin.call("purchase", str(get_product(product_id).get("product_id", product_id)))
@@ -213,6 +274,9 @@ func purchase(product_id: String) -> void:
 		purchase_failed.emit(product_id, "plugin sans purchase()")
 
 
+## Raccourci de test et de script : achète sans passer par la confirmation.
+## La UI ne doit jamais l'appeler — c'est exactement le raccourci que la
+## révision d'App Store refuse.
 func complete_mock_purchase(product_id: String) -> void:
 	if not can_purchase(product_id):
 		purchase_failed.emit(product_id, "déjà possédé ou indisponible")

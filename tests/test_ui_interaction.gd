@@ -304,7 +304,14 @@ func _test_store_confirmation() -> void:
 	if store == null:
 		_check(false, "boutique : autoload Store présent")
 		return
-	store.call("purchase", product_id)
+	# Garde sur la méthode AVANT de l'appeler. Un `call()` sur une méthode
+	# inexistante ne lève rien en GDScript : la suite perdait les quatre
+	# vérifications suivantes et annonçait quand même « 0 échec ». C'est le
+	# faux vert le plus dangereux possible — une suite qui renonce sans le dire.
+	_check(store.has_method("request_purchase"), "boutique : le Store sait demander un achat")
+	if not store.has_method("request_purchase"):
+		return
+	store.call("request_purchase", product_id)
 	await process_frame
 	_check(_layer_child_count(_ui, "OverlayLayer") >= 1, "boutique : confirmation affichée")
 

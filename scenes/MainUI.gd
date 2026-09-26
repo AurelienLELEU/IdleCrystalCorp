@@ -654,7 +654,7 @@ func _build_store_page() -> void:
 		var row := _make_row(id)
 		row.title.text = str(p.get("name", id))
 		row.subtitle.text = str(p.get("description", ""))
-		row.button.pressed.connect(func() -> void: Store.purchase(id))
+		row.button.pressed.connect(func() -> void: Store.request_purchase(id))
 		box.add_child(row.root)
 		rows[id] = row
 	_page_data[PAGE_STORE] = {"rows": rows}
@@ -948,12 +948,16 @@ func _show_purchase_confirm(product_id: String) -> void:
 			str(p.get("description", "")), price])
 	modal.set_dismissible(false)
 	# L'action principale et l'annulation sont côte à côte, même poids visuel.
+	#
+	# `submit_purchase()` et non la méthode d'achat directe : c'est ce bouton
+	# qui valide l'achat, la feuille StoreKit ne doit donc s'ouvrir qu'ici.
+	# L'ancien code n'utilisait le chemin direct qu'en mode plugin, et ce chemin
+	# envoyait au SDK sans passer par cette confirmation — donc le bouton d'un
+	# produit ouvrait la feuille de paiement au premier tap, et la confirmation
+	# n'existait qu'en simulation.
 	modal.add_button("Acheter — %s" % price, func() -> void:
 		modal.close()
-		if Store.mock:
-			Store.complete_mock_purchase(product_id)
-		else:
-			Store.purchase(product_id)
+		Store.submit_purchase(product_id)
 	, UITheme.SUCCESS.darkened(0.18))
 	modal.add_button("Annuler", modal.close, UITheme.PANEL_ALT)
 

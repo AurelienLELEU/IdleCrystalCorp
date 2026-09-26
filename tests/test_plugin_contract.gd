@@ -85,6 +85,7 @@ func _run() -> void:
 	_test_ads_never_runs_while_no_ads_purchased()
 	_test_store_delegates_to_plugin()
 	_test_store_maps_native_ids_back()
+	_test_ui_cannot_bypass_the_confirmation()
 	_test_store_entitlement_survives_hard_reset()
 	_test_store_prices_come_from_the_sdk()
 	_test_missing_plugin_methods_are_reported()
@@ -292,21 +293,66 @@ func _test_store_delegates_to_plugin() -> void:
 	_check("les 7 identifiants sont transmis", plugin.start_csv.split(",").size() == 7,
 		"-> %s" % [plugin.start_csv])
 
-	# Le premier achat passe par le plug-in avec l'identifiant App Store, pas
-	# l'identifiant interne : c'est le seul que StoreKit comprenne.
+	# La confirmation doit être un point de passage OBLIGATOIRE, dans les deux
+	# modes. Ce test affirmait l'inverse — il exigeait que le plug-in n'émette
+	# PAS purchase_requested — donc il validait le défaut au lieu de le
+	# détecter : le bouton d'un produit ouvrait la feuille StoreKit au premier
+	# tap, sans nom, sans prix, sans « Annuler ».
 	var requested: Array = []
 	_store.purchase_requested.connect(func(id: String) -> void: requested.append(id))
-	_store.purchase("supprimer_pubs")
-	_check("l'achat va au plug-in", plugin.purchase_calls == ["com.aurelien.idlegame.noads"],
+	_store.request_purchase("supprimer_pubs")
+	_check("le plug-in demande la confirmation comme le mode mock",
+		requested == ["supprimer_pubs"], "-> %s" % [requested])
+	_check("demander ne déclenche AUCUN paiement", plugin.purchase_calls.is_empty(),
 		"-> %s" % [plugin.purchase_calls])
-	_check("le mode plug-in n'émet pas purchase_requested", requested.is_empty(),
-		"-> %s" % [requested])
+
+	# Le bouton « Acheter » de la confirmation, lui, déclenche le paiement — avec
+	# l'identifiant App Store, pas l'identifiant interne : c'est le seul que
+	# StoreKit comprenne.
+	_store.submit_purchase("supprimer_pubs")
+	_check("le bouton Acheter va au plug-in",
+		plugin.purchase_calls == ["com.aurelien.idlegame.noads"],
+		"-> %s" % [plugin.purchase_calls])
+	_check("confirmer n'émet pas une seconde demande de confirmation",
+		requested == ["supprimer_pubs"], "-> %s" % [requested])
 
 	_store.restore_purchases()
 	_check("la restauration est déléguée", plugin.restore_calls == 1)
 
 	_store.set("mock", true)
 	_store.set("_plugin", _store_backup)
+
+
+## Un test de branche ne prouve qu'une branche. Celui-ci vérifie le CÂBLAGE de
+## l'UI, parce que le défaut n'était pas dans `StoreService` mais dans ce que
+## l'UI appelait : même avec la confirmation rendue correctly reachable, un
+## bouton de produit qui appellerait `submit_purchase()` directement
+## rouvrirait la feuille de paiement au premier tap, et tous les tests de
+## branche repasseraient au vert.
+func _test_ui_cannot_bypass_the_confirmation() -> void:
+	var src := FileAccess.get_file_as_string("res://scenes/MainUI.gd")
+	_check("achat : lecture de MainUI.gd", not src.is_empty())
+	if src.is_empty():
+		return
+	# Le bouton d'un produit ne déclenche QUE la demande, jamais le paiement.
+	_check("achat : le bouton de produit passe par request_purchase (confirmation d'abord)",
+		src.contains("Store.request_purchase("))
+	_check("achat : l'écran de confirmation est branché sur la demande",
+		src.contains("Store.purchase_requested.connect(_show_purchase_confirm)"))
+	_check("achat : le bouton « Acheter » de la confirmation déclenche le paiement",
+		src.contains("Store.submit_purchase("))
+	# Aucun appel direct à un chemin de paiement depuis l'UI.
+	_check("achat : l'UI n'appelle plus Store.purchase() (raccourci supprimé)",
+		not src.contains("Store.purchase("))
+	_check("achat : l'UI ne crédite plus un achat simulé elle-même",
+		not src.contains("complete_mock_purchase("))
+
+	# Contrôle d'écho : sans lui, une chaîne de caractères fausse ferait passer
+	# ces contrôles pour de bonnes raisons.
+	_check("achat : le contrôle d'écho ne matche pas une chaîne volontairement fausse",
+		not src.contains("Store.request_purchaseX("))
+	_check("achat : le contrôle d'écho du raccourci ne matche pas non plus",
+		not src.contains("Store.purchaseXX("))
 
 
 ## StoreKit parle en identifiants App Store Connect, le jeu en identifiants
@@ -319,7 +365,7 @@ func _test_store_maps_native_ids_back() -> void:
 
 	var completed: Array = []
 	_store.purchase_completed.connect(func(id: String) -> void: completed.append(id))
-	_store.purchase("supprimer_pubs")
+	_store.submit_purchase("supprimer_pubs")
 	plugin.purchase_completed.emit("com.aurelien.idlegame.noads")
 
 	_check("l'identifiant natif est retraduit", completed == ["supprimer_pubs"],
@@ -339,6 +385,11 @@ func _test_store_maps_native_ids_back() -> void:
 
 ## Le bug le plus coûteux d'un jeu à achats : un joueur qui réinitialise sa
 ## partie et qui doit racheter ce qu'il a déjà payé.
+##
+## Le test vérifie `has_no_ads()` — l'effet RÉELLEMENT lu par AdService — et
+## pas seulement `flags["no_ads"]`. L'ancien test ne regardait que le drapeau,
+## constatait sa disparition, et ne testait jamais l'effet : il était donc vert
+## pendant que le joueur payait deux fois.
 func _test_store_entitlement_survives_hard_reset() -> void:
 	var plugin := FakeStore.new()
 	plugin.owned["com.aurelien.idlegame.noads"] = true
@@ -347,17 +398,43 @@ func _test_store_entitlement_survives_hard_reset() -> void:
 	_store.call("_connect_plugin")
 
 	var game: Variant = root.get_node_or_null("GameManager")
-	# _apply_fresh_state est exactement ce que voit le jeu au redémarrage, sans
-	# réécrire la sauvegarde. hard_reset() conviendrait aussi mais toucherait au
-	# fichier, ce qu'un test n'a pas à faire.
-	game.call("_apply_fresh_state")
-	_check("après remise à zéro, l'état local a oublié l'achat",
-		not bool((game.get("flags") as Dictionary).get("no_ads", false)))
-	_check("le SDK, lui, s'en souvient", _store.is_purchased("supprimer_pubs"),
-		"-> un joueur avait payé : le droit doit revenir")
+	# On part d'un joueur qui a payé, dans un état cohérent.
+	game.call("grant_store_product", "supprimer_pubs")
+	_check("achat : le droit est accordé", bool(game.call("has_no_ads")))
+
+	# Le chemin exact du bouton « 💀 Oui, tout effacer » : hard_reset() passe
+	# par _apply_fresh_state(), qui remettait flags à {"no_ads": false}.
+	game.call("hard_reset")
+	_check("remise à zéro : le droit revient, sinon le joueur repaye 3,99 €",
+		bool(game.call("has_no_ads")))
+	_check("remise à zéro : le drapeau local est bien rétabli",
+		bool((game.get("flags") as Dictionary).get("no_ads", false)))
+	_check("remise à zéro : le SDK s'en souvient toujours",
+		_store.is_purchased("supprimer_pubs"))
+
+	# Et l'effet de gameplay : AdService doit refuser les pubs à ce joueur.
+	_ads.set("_busy", false)
+	_ads.set("_plugin", null)
+	_ads.set("mock", true)
+	_check("remise à zéro : les pubs sont réellement coupées pour lui",
+		not _ads.is_available("free_crystals"),
+		"-> le joueur verrait de la pub pour un achat payé")
+
+	# Un acheteur absent ne doit pas récupérer le droit par accident : la
+	# ré-application ne fabrique rien, elle ne fait que rendre ce qui est payé.
+	# L'ordre compte — effacer l'achat AVANT la remise à zéro, sinon
+	# `game_reset` rend encore un droit que le SDK a déjà oublié.
+	_store.set("_owned", {})
+	plugin.owned.clear()
+	game.call("hard_reset")
+	_check("sans achat, la remise à zéro ne fabrique aucun droit",
+		not bool(game.call("has_no_ads")))
 
 	_store.set("mock", true)
 	_store.set("_plugin", _store_backup)
+	_ads.set("_plugin", _ads_backup)
+	_ads.set("mock", true)
+	_ads.set("_busy", false)
 
 
 func _test_store_prices_come_from_the_sdk() -> void:
@@ -389,7 +466,7 @@ func _test_missing_plugin_methods_are_reported() -> void:
 	_store.purchase_failed.connect(func(id: String, reason: String) -> void: reasons.append(reason))
 	_store.set("_plugin", partial)
 	_store.set("mock", false)
-	_store.purchase("supprimer_pubs")
+	_store.submit_purchase("supprimer_pubs")
 	_check("un plug-in sans purchase() est signalé", reasons == ["plugin sans purchase()"],
 		"-> %s" % [reasons])
 

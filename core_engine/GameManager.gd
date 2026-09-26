@@ -1241,7 +1241,13 @@ func has_no_ads() -> bool:
 	return bool(flags.get("no_ads", false))
 
 
-func grant_store_product(product_id: String) -> void:
+## Accorde les effets d'un produit acheté.
+##
+## `silent` vaut vrai quand ce n'est PAS un achat mais un droit qui revient —
+## réinstallation de l'application, ou remise à zéro de la partie. Le droit doit
+## être rendu dans tous les cas ; seul le toast et le son d'achat n'ont pas lieu
+## d'être rejoués, sinon le joueur estudal payé une seconde fois à l'écran.
+func grant_store_product(product_id: String, silent: bool = false) -> void:
 	var p := config.store_product(product_id)
 	if p.is_empty():
 		push_warning("Produit d'achat inconnu : %s" % product_id)
@@ -1249,7 +1255,8 @@ func grant_store_product(product_id: String) -> void:
 	var grant: Dictionary = p.get("grant", {})
 	if grant.has("no_ads"):
 		flags["no_ads"] = true
-		notify("Pubs supprimées, merci !", "success")
+		if not silent:
+			notify("Pubs supprimées, merci !", "success")
 	if grant.has("resources"):
 		_grant(BigNum.from_float(float(grant["resources"])), true)
 	if grant.has("prestige_points"):
