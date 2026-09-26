@@ -55,7 +55,7 @@ dernier.
 
 ## Tests
 
-846 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
+850 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
 
 ```bash
 ./tests/run_all.sh                       # tout
@@ -783,7 +783,7 @@ Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
 ### Le contrôle final, avant d'envoyer à Apple
 
 ```bash
-./tests/run_all.sh                 # 846 vérifications, 0 échec attendu
+./tests/run_all.sh                 # 850 vérifications, 0 échec attendu
 zsh tools/fix_info_plist.sh        # à exécuter APRÈS chaque export
 ```
 

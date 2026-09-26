@@ -391,6 +391,27 @@ func _test_settings_toggles() -> void:
 	_check(bool(audio.get("muted")) == not muted_before, "réglages : le son se bascule")
 	audio.call("set_muted", muted_before)
 
+	# Le timer quotidien peut expirer quand l'app est en arrière-plan. Sans
+	# l'écoute de daily_bonus_changed, une page Réglages déjà ouverte reste
+	# bloquée sur l'ancien état jusqu'à ce que le joueur change d'onglet.
+	var daily: Variant = (_ui.get("_settings_rows") as Dictionary).get("daily")
+	_check(daily != null, "réglages : ligne du bonus quotidien présente")
+	if daily == null:
+		return
+	var stats: Dictionary = _game.get("stats")
+	var now := Time.get_unix_time_from_system()
+	stats["last_daily_claim"] = now
+	_ui.call("_refresh_settings")
+	_check(daily.button.disabled, "réglages : le bonus est bloqué avant les 24 h")
+	stats["last_daily_claim"] = now - 86401.0
+	var toasts_before := _toast_count()
+	_game.emit_signal("daily_bonus_changed", true)
+	await process_frame
+	_check(not daily.button.disabled,
+		"réglages : daily_bonus_changed réactive le bouton sans quitter la page")
+	_check(_toast_count() - toasts_before == 1,
+		"bonus quotidien : un seul toast annonce sa disponibilité")
+
 
 ## Le bouton « Restaurer mes achats » doit exister ET déclencher la
 ## restauration. La méthode `StoreService.restore_purchases()` existait depuis le

@@ -116,6 +116,7 @@ func _connect_signals() -> void:
 	GameManager.achievement_unlocked.connect(_on_achievement_unlocked)
 	GameManager.combo_changed.connect(_on_combo_changed)
 	GameManager.game_reset.connect(_on_game_reset)
+	GameManager.daily_bonus_changed.connect(_on_daily_bonus_changed)
 	# Sans cette connexion, le signal partait dans le vide : revenir au premier
 	# plan — le geste le plus courant d'un joueur mobile — calculait les gains
 	# hors-ligne, remplissait `pending_offline`, et n'affichait rien. Le joueur
@@ -1077,8 +1078,11 @@ func _on_purchase_failed(_product_id: String, reason: String) -> void:
 func _on_store_products_loaded(_count: int) -> void:
 	# Les prix localisés n'existent qu'après le retour asynchrone de StoreKit. La
 	# boutique est donc désactivée jusque-là, puis rafraîchie pour rendre les
-	# produits achetables avec leur vrai prix — jamais celui du JSON.
+	# produits achetables avec leur vrai prix — jamais celui du JSON. Le même
+	# signal débloque la consultation des droits et des pubs; si les réglages
+	# étaient déjà ouverts, leurs boutons doivent aussi être réactivés.
 	_refresh_page(PAGE_STORE)
+	_refresh_settings()
 
 
 # ========================================================================== pubs
@@ -1152,6 +1156,18 @@ func _on_game_reset() -> void:
 	_refresh_achievements()
 	_refresh_page(_current_page)
 	Toast.push(_toast_layer, "Partie réinitialisée.", "warn")
+
+
+func _on_daily_bonus_changed(available: bool) -> void:
+	# Le signal est émis au retour au premier plan et après l'encaissement. Sans
+	# l'écouter, une page Réglages ouverte gardait le bouton désactivé après que
+	# les 24 h étaient écoulées; et un joueur hors de cette page n'était jamais
+	# informé du bonus devenu disponible.
+	if _current_page == PAGE_SETTINGS:
+		_refresh_settings()
+	if available and GameManager.is_daily_bonus_available() \
+			and not GameManager.has_pending_offline() and not _is_modal_open():
+		Toast.push(_toast_layer, "🎁 Bonus quotidien disponible dans Réglages", "gold")
 
 
 # ====================================================================== en-tête
