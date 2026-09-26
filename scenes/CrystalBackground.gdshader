@@ -28,8 +28,8 @@ void fragment() {
 	float central_halo = exp(-length(centered - vec2(0.0, -0.08)) * 3.2);
 	float lower_halo = exp(-length(centered - vec2(0.0, 0.34)) * 4.0);
 	vec3 glow = mix(VIOLET, CYAN, research_progress * 0.78);
-	color += glow * central_halo * (0.075 + pulse * 0.025);
-	color += CRYSTAL * lower_halo * (0.025 + pulse * 0.012);
+	color += glow * central_halo * (0.085 + pulse * 0.028);
+	color += CRYSTAL * lower_halo * (0.035 + pulse * 0.016);
 
 	// Cinq facettes apparaissent l'une après l'autre à mesure que le joueur
 	// progresse. Leur dérive lente et leur rotation sont animées par le temps;
@@ -39,25 +39,25 @@ void fragment() {
 		float threshold = index * 0.17;
 		float activation = smoothstep(threshold, threshold + 0.24,
 			purchase_progress + (i == 0 ? 0.16 : 0.0));
-		float side = mod(index, 2.0) * 2.0 - 1.0;
 		float drift = sin(time * (0.12 + index * 0.012) + index * 1.7);
 		vec2 center = vec2(
-			side * (0.14 + 0.15 * fract(index * 0.37)) + drift * 0.025,
-			0.12 + 0.17 * mod(index * 0.61, 1.0)
+			0.12 + 0.76 * fract(index * 0.37 + 0.03) + drift * 0.025,
+			0.14 + 0.70 * fract(index * 0.61)
 				+ cos(time * 0.09 + index) * 0.025);
 		vec2 local = uv - center;
 		local.x *= aspect;
+		float side = mod(index, 2.0) * 2.0 - 1.0;
 		float angle = time * (0.10 + index * 0.018) * side;
 		mat2 rotation = mat2(vec2(cos(angle), -sin(angle)),
 			vec2(sin(angle), cos(angle)));
 		local = rotation * local;
-		float size = 0.030 + purchase_progress * 0.012;
+		float size = 0.034 + purchase_progress * 0.014;
 		float distance_to_edge = diamond_distance(local);
 		float body = 1.0 - smoothstep(size * 0.58, size, distance_to_edge);
 		float rim = exp(-abs(distance_to_edge - size) * 150.0);
 		vec3 shard_color = mix(CRYSTAL, CYAN, research_progress * 0.68);
 		float shimmer = 0.72 + 0.28 * sin(time * 1.1 + index * 2.3);
-		color += shard_color * activation * shimmer * (body * 0.18 + rim * 0.11);
+		color += shard_color * activation * shimmer * (body * 0.27 + rim * 0.20);
 	}
 
 	// Une trame de lumière extrêmement faible évite un aplat statique avant le
