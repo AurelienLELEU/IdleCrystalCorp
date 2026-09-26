@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+"""Build SCons de l'extension IdleAds.
+
+Invoqué par `build.sh`, qui fournit l'environnement (ARCH, SDKROOT, ...) :
+ce fichier ne fait que déclarer quoi compiler avec quoi.
+
+Pourquoi un SConstruct alors que SCons peut se passer de lui : parce que les
+fichiers Objective-C++ (.mm) ne sont pas reconnus par la détection
+automatique de SCons, qui ne verrait que les .cpp et produirait une extension
+sans le moindre appel à AdMob — qui compiles, mais plantent au premier clic.
+"""
+
+import os
+
+env = SConscript("godot-cpp/SConstruct")
+
+env.Append(CPPPATH=["src/", "ios/"])
+
+# Les .mm sont Objective-C++ : Objective-C++ ET C++.
+env.Append(OBJSUFFIX=".mm.o")
+env.Append(SUFFIX=[".mm", ".mm.o"])
+
+# GoogleMobileAds.framework est un cadre dynamique : il doit être lié, et son
+# chemin de recherche transmis au compilateur.
+if env["platform"] == "ios":
+    framework_dir = env.get("google_mobile_ads_path", "")
+    if framework_dir and os.path.isdir(framework_dir):
+        env.Append(LINKFLAGS=["-F", framework_dir, "-framework", "GoogleMobileAds"])
+        env.Append(FRAMEWORKS=["Foundation", "UIKit", "AVFoundation", "CoreGraphics", "AdSupport"])
+        # -fobjc-arc : sans lui, chaque alloc/init dans les delegates Objective-C
+        # fuit, et AdMob appelle ses delegates assez souvent pour que ça se voie.
+        env.Append(CCFLAGS=["-fobjc-arc"])
+    else:
+        print("!! GoogleMobileAds.framework introuvable — compilation sans le SDK AdMob.")
+        print("   Renseignez google_mobile_ads_path ou compilez avec -DIDLE_ADS_NO_SDK.")
+
+sources = Glob("src/*.cpp") + Glob("ios/*.mm")
+library = env.SharedLibrary(
+    "../bin/libidle_ads{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+    source=sources,
+)
+Default(library)

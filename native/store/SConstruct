@@ -1,0 +1,47 @@
+#!/usr/bin/env python
+"""Build SCons de l'extension IdleStore (StoreKit 2).
+
+Invoqué par `build.sh`, qui fournit l'environnement (ARCH, SDKROOT, ...) :
+ce fichier ne fait que déclarer quoi compiler avec quoi.
+
+StoreKit 2 est une API Swift uniquement : le module se compile avec le
+compilateur Swift, puis le résultat est archivé (libtool -static) avant d'être
+lié dans la bibliothèque C++. Sans cette étape, les symboles Swift manquent au
+lien et l'extension se charge puis plante au premier achat.
+"""
+
+import os
+
+env = SConscript("godot-cpp/SConstruct")
+
+env.Append(CPPPATH=["src/", "ios/"])
+env.Append(FRAMEWORKS=["Foundation", "StoreKit", "UIKit"])
+
+# --- Module Swift -> archive statique --------------------------------------
+# swiftc produit un objet, pas une bibliothèque : -emit-library -static le
+# transforme en archive que l'éditeur de liens C++ peut intégrer.
+swift_sources = Glob("ios/*.swift")
+swift_objects = []
+if swift_sources:
+    swift_objects = env.Command(
+        "build/IdleStore.swiftmodule.o",
+        swift_sources,
+        [
+            "swiftc",
+            "-emit-object",
+            "-parse-as-library",
+            "-target", env.get("swift_target", "arm64-apple-ios15.0"),
+            "-sdk", env.get("SDKROOT", "iphoneos"),
+            "-O",
+            "-c", "${SOURCES.abspath}",
+            "-o", "${TARGET.abspath}",
+        ],
+    )
+    env.Depends(swift_objects[0], swift_sources)
+
+sources = Glob("src/*.cpp") + swift_objects
+library = env.SharedLibrary(
+    "../bin/libidle_store{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+    source=sources,
+)
+Default(library)

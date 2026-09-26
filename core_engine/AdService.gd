@@ -48,6 +48,44 @@ func _ready() -> void:
 		_plugin = instance
 		if _plugin is Node:
 			add_child(_plugin as Node)
+	_connect_plugin()
+
+
+## Branche les signaux du SDK sur nos propres états.
+##
+## Le plug-in ne rappelle pas l'autoload `Ads` : il émet des signaux, et c'est
+## ici qu'on les traduit. Un appel natif vers un autoload depuis une tâche
+## Objective-C ou Swift n'est pas fiable — le nœud peut être en cours de
+## destruction quand le rappel arrive, et un signal reçu par un objet invalide
+## plante sans laisser de trace exploitable.
+func _connect_plugin() -> void:
+	if _plugin == null or not is_instance_valid(_plugin):
+		return
+	if _plugin.has_signal("rewarded_completed"):
+		_plugin.connect("rewarded_completed", complete)
+	if _plugin.has_signal("rewarded_failed"):
+		_plugin.connect("rewarded_failed", _on_plugin_failed)
+
+
+func _on_plugin_failed(reward_id: String, reason: String) -> void:
+	abort(reward_id, reason if not reason.is_empty() else "pub indisponible")
+	# Une pub indisponible est normale : on l'annonce discrètement, sans message
+	# d'erreur en rouge qui ferait croire à un bug. Le joueur garde son gain
+	# hors-ligne, il perd simplement l'accélérateur — ce qui est la seule
+	# sanction acceptable quand on a promis qu'aucun achat ni pub n'est requis.
+	GameManager.notify("Publicité indisponible. Récompense non délivrée.", "warn")
+
+
+## Passe les identifiants AdMob au SDK. Sans effet en mode simulation.
+##
+## `debug` DOIT valoir true pendant le développement : c'est ce qui fait
+## afficher les annonces de test de Google au lieu des vraies. Voir
+## native/ads/ios/idle_ads_ios.mm pour pourquoi c'est non négociable.
+func configure_plugin(app_id: String, rewarded_unit_id: String, debug: bool) -> bool:
+	if _plugin == null or not _plugin.has_method("configure"):
+		return false
+	_plugin.call("configure", app_id, rewarded_unit_id, debug)
+	return true
 
 
 func _notification(what: int) -> void:
@@ -121,10 +159,16 @@ func complete(reward_id: String) -> void:
 	ad_completed.emit(reward_id)
 
 
-func abort(reward_id: String) -> void:
+## Interruption de la pub. Rien n'est crédité.
+##
+## `reason` vient du SDK quand il y en a une : « réseau indisponible » et
+## « pub interrompue » ne demandent pas la même réaction du joueur, et un
+## message générique sur une coupure réseau passagère donne l'impression
+## d'un bug alors que c'est un état normal et temporaire.
+func abort(reward_id: String, reason: String = "pub interrompue") -> void:
 	_busy = false
 	_active_reward = ""
-	ad_failed.emit(reward_id, "pub interrompue")
+	ad_failed.emit(reward_id, reason)
 
 
 # ------------------------------------------------------------------ simulation

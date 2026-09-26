@@ -39,6 +39,102 @@ func _ready() -> void:
 		_plugin = instance
 		if _plugin is Node:
 			add_child(_plugin as Node)
+		_connect_plugin()
+		_start_plugin()
+
+
+## Branche les signaux de StoreKit 2 sur nos propres états.
+##
+## Le plug-in émet des signaux et ne rappelle pas l'autoload : un appel natif
+## vers un autoload depuis une tâche Swift arrive parfois après la destruction
+## du nœud, et plante sans laisser de trace. Un signal reçu par un objet
+## invalide est, lui, au minimum ignorable.
+func _connect_plugin() -> void:
+	if _plugin == null or not is_instance_valid(_plugin):
+		return
+	if _plugin.has_signal("products_loaded"):
+		_plugin.connect("products_loaded", _on_products_loaded)
+	if _plugin.has_signal("purchase_completed"):
+		_plugin.connect("purchase_completed", _on_plugin_purchased)
+	if _plugin.has_signal("purchase_failed"):
+		_plugin.connect("purchase_failed", _on_plugin_failed)
+	if _plugin.has_signal("purchase_restored"):
+		_plugin.connect("purchase_restored", _on_plugin_restored)
+
+
+## Demande au SDK de charger le catalogue. Les identifiants viennent de la
+## configuration, dans l'ordre : c'est le seul endroit où ils sont écrits, donc
+## le seul endroit à modifier pour ajouter un produit.
+func _start_plugin() -> void:
+	if _plugin == null or not _plugin.has_method("start"):
+		return
+	var ids: PackedStringArray = PackedStringArray()
+	for item in get_products():
+		ids.append(str(item.get("product_id", item.get("id", ""))))
+	_plugin.call("start", ",".join(ids))
+
+
+func _on_products_loaded(_count: int) -> void:
+	# Le catalogue est prêt : c'est le bon moment de demander les droits déjà
+	# possédés, StoreKit ne renseignant is_purchased qu'à partir de maintenant.
+	refresh_entitlements()
+	products_loaded.emit()
+
+
+func _on_plugin_purchased(native_product_id: String) -> void:
+	# StoreKit parle en identifiants App Store Connect, la config en identifiants
+	# internes (« supprimer_pubs »). Le pont est la recherche inverse.
+	var product_id := _internal_id_for(native_product_id)
+	_grant(product_id)
+	purchase_completed.emit(product_id)
+
+
+func _on_plugin_failed(native_product_id: String, reason: String) -> void:
+	purchase_failed.emit(_internal_id_for(native_product_id), reason)
+
+
+func _on_plugin_restored(count: int) -> void:
+	# count < 0 signale une erreur réseau, pas un catalogue vide.
+	if count < 0:
+		GameManager.notify("Restauration impossible. Vérifiez votre connexion.", "warn")
+		return
+	refresh_entitlements()
+	if count == 0:
+		GameManager.notify("Aucun achat à restaurer.", "info")
+	else:
+		GameManager.notify("%d achat(s) restauré(s)." % count, "success")
+
+
+func _internal_id_for(native_product_id: String) -> String:
+	for item in get_products():
+		if str(item.get("product_id", "")) == native_product_id:
+			return str(item.get("id", native_product_id))
+	return native_product_id
+
+
+## Demande au SDK les achats déjà possédés. Appelé au démarrage : un joueur
+## qui réinstalle l'application doit retrouver ses droits sans racheter.
+func refresh_entitlements() -> void:
+	if _plugin == null or not _plugin.has_method("is_purchased"):
+		return
+	for item in get_products():
+		if str(item.get("type", "consumable")) == "entitlement":
+			var native_id := str(item.get("product_id", ""))
+			if _plugin.call("is_purchased", native_id):
+				_grant(str(item.get("id", "")))
+
+
+## Prix affiché, au format de la devise locale. C'est le SDK qui parle : le
+## prix du JSON n'est qu'un repli pour la boutique simulée, et afficher le prix
+## du JSON en production est un motif de refus de la revue.
+func get_display_price(product_id: String) -> String:
+	var item := get_product(product_id)
+	var fallback := str(item.get("price", ""))
+	if _plugin != null and _plugin.has_method("get_price"):
+		var price := str(_plugin.call("get_price", str(item.get("product_id", product_id))))
+		if not price.is_empty():
+			return price
+	return fallback
 
 
 func configure(settings: Dictionary) -> void:
@@ -73,10 +169,22 @@ func is_consumable(product_id: String) -> bool:
 
 
 ## Un droit (type "entitlement") ne s'achète qu'une fois.
+##
+## Le SDK est consulté en second, et c'est volontaire : si le joueur a remis
+## la partie à zéro mais que son achat est bien dans l'App Store, le droit doit
+## revenir. Faire confiance au seul état local reviendrait à lui facturer deux
+## fois le même achat.
 func is_purchased(product_id: String) -> bool:
 	if is_consumable(product_id):
 		return false
-	return bool(_owned.get(product_id, false))
+	if bool(_owned.get(product_id, false)):
+		return true
+	if _plugin != null and _plugin.has_method("is_purchased"):
+		var native_id := str(get_product(product_id).get("product_id", product_id))
+		if _plugin.call("is_purchased", native_id):
+			_owned[product_id] = true
+			return true
+	return false
 
 
 func can_purchase(product_id: String) -> bool:

@@ -660,7 +660,7 @@ func _refresh_store() -> void:
 		var row: Row = rows.get(id)
 		if row == null:
 			continue
-		var price := str(p.get("price", "—"))
+		var price := Store.get_display_price(id)
 		var badge := str(p.get("badge", ""))
 		row.button.text = price if badge.is_empty() else "%s  %s" % [price, badge]
 		var owned: bool = Store.is_purchased(id)
@@ -709,7 +709,10 @@ func _build_settings_page() -> void:
 	ads.subtitle.text = "Désactivez-les si vous préférez jouer sans pub. Le jeu reste gratuit."
 	ads.button.pressed.connect(func() -> void:
 		GameManager.config.ads["enabled"] = not bool(GameManager.config.ads.get("enabled", true))
-		Ads.configure(GameManager.config.ads)
+		# _configure_services() réapplique aussi le mode test AdMob et la
+		# boutique : appeler Ads.configure() seul laisserait le plug-in dans son
+		# état précédent.
+		GameManager.call("_configure_services")
 		_refresh_settings()
 	)
 	box.add_child(ads.root)
@@ -889,14 +892,21 @@ func _show_purchase_confirm(product_id: String) -> void:
 	var p: Dictionary = Store.get_product(product_id)
 	if p.is_empty():
 		return
+	# Prix fourni par l'App Store quand le SDK est branché, sinon celui du
+	# catalogue de simulation. Afficher le prix du JSON en production est un
+	# motif de refus de la revue : il ne suit ni la devise ni le pays.
+	var price := Store.get_display_price(product_id)
 	var modal := Modal.open(_overlay_layer, str(p.get("name", product_id)),
 		("%s\n\nPrix : %s\n\nLe jeu reste entièrement jouable et gratuit sans cet achat.") % [
-			str(p.get("description", "")), str(p.get("price", "—"))])
+			str(p.get("description", "")), price])
 	modal.set_dismissible(false)
 	# L'action principale et l'annulation sont côte à côte, même poids visuel.
-	modal.add_button("Acheter — %s" % str(p.get("price", "")), func() -> void:
+	modal.add_button("Acheter — %s" % price, func() -> void:
 		modal.close()
-		Store.complete_mock_purchase(product_id)
+		if Store.mock:
+			Store.complete_mock_purchase(product_id)
+		else:
+			Store.purchase(product_id)
 	, UITheme.SUCCESS.darkened(0.18))
 	modal.add_button("Annuler", modal.close, UITheme.PANEL_ALT)
 

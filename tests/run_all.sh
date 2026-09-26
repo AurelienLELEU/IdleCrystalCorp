@@ -19,11 +19,35 @@ SUITES=(
 	"test_game|Logique de jeu, sauvegarde, hors-ligne, ascension"
 	"test_ui_compile|Construction de la scène principale"
 	"test_ui_interaction|Interaction réelle de l'interface"
+	"test_plugin_contract|Contrat entre le jeu et les extensions natives"
 )
 
 total_fail=0
 total_checks=0
 typeset -a SUMMARY
+
+# --- Frontière native, hors Godot ------------------------------------------
+#
+# Ce contrôle ne lance pas Godot : il vérifie que les en-têtes C, les .mm, le
+# Swift et les .cpp racontent la même histoire. Une dérive de signature entre
+# deux de ces fichiers se comporte très bien à l'édition, se comporte bien à
+# l'export, et plante à la première pub sur l'appareil — sans message d'erreur
+# qui pointe vers la cause. C'est le seul contrôle possible ici, le code natif
+# ne compilant pas sur cette machine.
+echo ""
+echo "──────────────────────────────────────────────────────────────"
+echo "  check_native_contract — frontières C / C++ / Objective-C++ / Swift"
+echo "──────────────────────────────────────────────────────────────"
+if native_log="$(python3 tests/check_native_contract.py 2>&1)"; then
+	echo "$native_log"
+	native_checks="$(printf '%s' "$native_log" | sed -nE 's/.*: ([0-9]+) vérifications.*/\1/p')"
+	total_checks=$((total_checks + ${native_checks:-0}))
+	SUMMARY+=("  OK      ${native_checks:-?} vérifications   check_native_contract.py")
+else
+	echo "$native_log"
+	total_fail=$((total_fail + 1))
+	SUMMARY+=("  ECHEC   0 vérifications   check_native_contract.py")
+fi
 
 for entry in $SUITES; do
 	name="${entry%%|*}"

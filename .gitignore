@@ -25,6 +25,13 @@
 # Sauvegardes de dépendances
 export_credentials.cfg
 
+# Extensions natives : les binaires sont des artefacts, liés à la version du
+# SDK AdMob, de l'API Godot et de celle d'iOS. Les SOURCES sont versionnées.
+native/*/bin/
+native/*/godot-cpp/
+*.gdextension
+*.gdextension.uid
+
 # Certificats et signatures : ne doivent JAMAIS être versionnés
 *.p12
 *.mobileprovision

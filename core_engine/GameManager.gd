@@ -990,10 +990,35 @@ func _notification(what: int) -> void:
 func _on_session_started() -> void:
 	stats["sessions"] = int(stats.get("sessions", 0)) + 1
 	_apply_boost_state()
+	_configure_services()
 	# La production au moment du lancement sert de référence hors-ligne.
 	_recalculate()
 	production_at_save = get_production_per_sec()
 	daily_bonus_changed.emit(is_daily_bonus_available())
+
+
+## Passe la configuration aux services de synthèse.
+##
+## Appelé au démarrage et après tout changement depuis l'interface. Le mode
+## test AdMob est transmis ici : c'est le seul endroit où il est décidé, et il
+## est aussi écrit dans la sauvegarde, pour qu'une session de développement
+## reste en mode test même après un redémarrage.
+func _configure_services() -> void:
+	var ads_settings: Dictionary = config.ads
+	Ads.configure(ads_settings)
+	Store.configure(config.store)
+
+	# Le mode test vient de ProjectSettings, non du JSON de jeu : un « true »
+	# oublié dans la configuration livrerait de vraies annonces en production,
+	# ce que Google sanctionne. Un binaire exporté en release force donc le mode
+	# test à faux, quoi que dise le fichier.
+	var debug_ads := bool(ProjectSettings.get_setting("application/ads_use_test_ads", true))
+	if not OS.is_debug_build():
+		debug_ads = false
+	Ads.configure_plugin(
+		str(ProjectSettings.get_setting("application/admob_app_id", "")),
+		str(ProjectSettings.get_setting("application/admob_rewarded_unit_id", "")),
+		debug_ads)
 
 
 func _on_backgrounded() -> void:

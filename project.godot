@@ -16,6 +16,24 @@ run/main_scene="uid://capq2y3nvisck"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.png"
 config/version="1.0.0"
+
+; --- Google AdMob ---------------------------------------------------------
+; Renseignez vos identifiants réels ici, PAS dans data/game_config.json :
+; c'est la seule façon de garantir qu'ils ne sont pas livrés par accident.
+;
+; Les valeurs actuelles sont les IDENTIFIANTS DE TEST de Google, publics et
+; destinés à ça. Ils affichent une annonce fictive et ne rapportent rien, ce
+; qui est exactement le comportement voulu en développement.
+;
+; En production, remplacez app_id et rewarded_unit_id par les vôtres, et
+; laissez ads_use_test_ads=false.
+;
+; ads_use_test_ads est de toute façon forcé à false dans une build release :
+; un binaire livré ne peut pas afficher de vraies annonces par accident.
+application/ads_use_test_ads=true
+application/admob_app_id="ca-app-pub-3940256099942544~1458002511"
+application/admob_rewarded_unit_id="ca-app-pub-3940256099942544/5224354917"
+
 boot_splash/bg_color=Color(0.027, 0.024, 0.059, 1)
 boot_splash/show_image=true
 boot_splash/image="res://assets/splash.png"

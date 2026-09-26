@@ -306,7 +306,7 @@ func _test_huge_numbers() -> void:
 
 func _test_save_roundtrip() -> void:
 	_reset()
-	# Un état reconnaissable, très « non trivial ».
+	# Un état reconnaissable, mais « non trivial ».
 	_game.call("grant_resources", BigNum.parse("7.25e93"), true)
 	_game.call("buy_building", "b1", 1)
 	_game.call("grant_resources", BigNum.from_float(1e12), false)

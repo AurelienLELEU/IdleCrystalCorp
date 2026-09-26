@@ -1,0 +1,45 @@
+; Manifeste de la GDExtension « IdleStore ».
+;
+; POURQUOI L'EXTENSION EST EN « .dist » ET NON « .gdextension »
+;
+; Godot charge TOUTES les .gdextension présentes dans le projet. Tant que le
+; binaire n'est pas compilé, il spamme quatre lignes d'erreur de dlopen à
+; chaque lancement, dans l'éditeur comme dans les tests — et un projet qui hurle
+; au démarrage masque les vrais problèmes.
+;
+; Le fichier s'appelle donc « .gdextension.dist ». `build.sh` le copie en
+; « .gdextension » après une compilation réussie, et le supprime si le build
+; échoue. Après un build réussi, il n'y a rien d'autre à configurer.
+;
+; Ne le renommez pas à la main pour « essayer » : vous revient aux erreurs de
+; dlopen, et le fichier risque d'être committé par erreur.
+
+[configuration]
+
+entry_symbol = "idle_store_library_init"
+compatibility_minimum = "4.2"
+reloadable = true
+
+[libraries]
+
+macos.debug = "res://native/store/bin/libidle_store.macos.template_debug.dylib"
+macos.release = "res://native/store/bin/libidle_store.macos.template_release.dylib"
+linux.debug.x86_64 = "res://native/store/bin/libidle_store.linux.template_debug.x86_64.so"
+linux.release.x86_64 = "res://native/store/bin/libidle_store.linux.template_release.x86_64.so"
+windows.debug.x86_64 = "res://native/store/bin/libidle_store.windows.template_debug.x86_64.dll"
+windows.release.x86_64 = "res://native/store/bin/libidle_store.windows.template_release.x86_64.dll"
+
+; --- iOS ---------------------------------------------------------------
+; arm64            : appareil réel
+; arm64-simulator  : simulateur sur Apple Silicon
+; x86_64-simulator : simulateur sur Intel
+
+ios.debug.arm64 = "res://native/store/bin/libidle_store.ios.template_debug.arm64.dylib"
+ios.release.arm64 = "res://native/store/bin/libidle_store.ios.template_release.arm64.dylib"
+ios.debug.arm64-simulator = "res://native/store/bin/libidle_store.ios.template_debug.arm64-simulator.dylib"
+ios.release.arm64-simulator = "res://native/store/bin/libidle_store.ios.template_release.arm64-simulator.dylib"
+ios.debug.x86_64-simulator = "res://native/store/bin/libidle_store.ios.template_debug.x86_64-simulator.dylib"
+ios.release.x86_64-simulator = "res://native/store/bin/libidle_store.ios.template_release.x86_64-simulator.dylib"
+
+android.debug.arm64 = "res://native/store/bin/libidle_store.android.template_debug.arm64.so"
+android.release.arm64 = "res://native/store/bin/libidle_store.android.template_release.arm64.so"
