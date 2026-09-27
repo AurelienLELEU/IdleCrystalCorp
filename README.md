@@ -545,30 +545,34 @@ programmé, l'autorisation et l'état d'alimentation.
 
 ## Export iOS
 
+Installer d'abord les **Godot Export Templates 4.7.2** (`Editor → Manage Export
+Templates`) et Xcode complet. Dans le preset iOS, remplacer `-` par le Team ID
+Apple Developer réel (10 caractères) et `com.aurelien.idlegame` par un Bundle ID
+unique enregistré chez Apple. Le preset local exporte actuellement vers
+`../Desktop/test/IdleCrystalCorp.ipa`.
+
 ```bash
-# 1. Préparer les templates iOS correspondants à Godot 4.7.2 dans l'éditeur.
-# 2. Renseigner l'identifiant et l'équipe réels dans export_presets.cfg :
-#    application/bundle_identifier, application/app_store_team_id
-# 3. Compiler les trois GDExtensions, pour que build/ les contienne :
+# Développement sur appareil : les pubs restent simulées avec NO_SDK=1.
 NO_SDK=1 native/ads/build.sh ios # seulement simulation AdMob; SDK réel pour prod
 native/store/build.sh ios
 native/notifications/build.sh ios
-# 4. Exporter depuis l'éditeur Godot (projet iOS/Xcode), ou :
-godot --headless --path . --export-debug "iOS" build/IdleCrystalCorp.ipa
-
-# 5. Nettoyer l'Info.plist (voir plus bas), puis ouvrir/signature Xcode.
-zsh tools/fix_info_plist.sh
+# Export debug selon le chemin configuré dans le preset; ou Project → Export.
+godot --headless --path . --export-debug "iOS"
 ```
 
-Pour installer sur un iPhone de développement, utiliser l'export **Debug**,
-une équipe Apple Developer valide, un certificat de développement et un profil
-qui contient l'UDID de l'appareil; installer l'IPA signée via Xcode Devices and
-Simulators, Apple Configurator ou `ios-deploy`. Pour une diffusion App Store,
-utiliser l'export **Release**, les identifiants App Store Connect/AdMob réels,
-valider les achats Sandbox et envoyer l'archive par Xcode Organizer ou Transporter.
-Les icônes sont générées depuis `project.godot` → `config/icon` (`icon.png`) si
-les champs optionnels d'icônes du preset restent vides; vérifier l'icône générée
-sur l'écran d'accueil après installation.
+Pour un cycle Xcode, cochez temporairement **Export Project Only**, exportez le
+projet iOS, ouvrez le `.xcodeproj`, sélectionnez votre équipe dans *Signing &
+Capabilities*, choisissez l'iPhone connecté et cliquez **Run**. Pour une IPA
+Debug, utilisez la méthode d'export Development avec un profil contenant l'UDID
+de l'appareil; installez-la par Xcode Devices and Simulators ou Apple Configurator.
+Pour App Store, désactivez *Export Project Only*, exportez Release, puis envoyez
+l'archive avec Xcode Organizer/Transporter après validation Sandbox.
+
+Les champs d'icônes iOS du preset sont vides : Godot retombe sur
+`project.godot` → `config/icon` (`icon.png`, 1024×1024, sans alpha). L'icône est
+donc bien incluse; inspectez-la sur l'écran d'accueil après installation. Le
+Bundle ID, le Team ID et les réglages de signature actuels **ne sont pas encore
+des valeurs de production**.
 
 ### `tools/fix_info_plist.sh`
 
@@ -580,7 +584,11 @@ Ce script les supprime avec `PlistBuddy`, et pose
 `ITSAppUsesNonExemptEncryption = false` pour éviter une question de conformité à
 l'export App Store.
 
-> Exécutez-le **après** chaque export, sinon les clés reviennent.
+Le script prend un **dossier `.app`** en argument, pas un `.ipa`. À exécuter sur
+un bundle non encore signé / avant la signature finale, par exemple le produit
+`.app` d'une build Xcode. Toute modification de `Info.plist` après signature
+invalide la signature; n'appliquez pas le script à une IPA déjà signée sans la
+re-signer ensuite.
 
 ---
 
