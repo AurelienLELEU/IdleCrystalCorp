@@ -504,6 +504,7 @@ def check_native_runtime_safety(rep: Report) -> None:
         '@_cdecl("idle_store_ios_purchase")', 1)[0]
     store_restore = store_swift.split("public func idle_store_ios_restore", 1)[1].split(
         '@_cdecl("idle_store_ios_is_purchased")', 1)[0]
+    ads_service = _without_comments(read("core_engine/AdService.gd"))
 
     rep.check('kAdMobSampleRewardedUnit = @"ca-app-pub-3940256099942544/1712485313"' in ads,
               "AdMob iOS : l'unité de test est le format Rewarded iOS",
@@ -560,6 +561,11 @@ def check_native_runtime_safety(rep: Report) -> None:
     rep.check("configured = idle_store_ios_start" in store_cpp,
               "IdleStore : is_configured reflète le démarrage effectif du pont",
               "configured restait toujours false")
+    for label, source in (("IdleAds", ads_service), ("IdleStore", store_service)):
+        rep.check("func _exit_tree()" in source and "plugin.free()" in source
+                  and "_plugin = null" in source,
+                  f"{label} : l'Object natif est libéré quand son service quitte l'arbre",
+                  "ClassDB.instantiate() produit un Object non-RefCounted; perdre la référence ne le détruit pas")
     rep.check("Task { @MainActor in" in store_start
               and "Transaction.currentEntitlements" in store_start
               and "s_entitlements.insert(transaction.productID)" in store_start

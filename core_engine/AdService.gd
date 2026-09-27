@@ -51,6 +51,21 @@ func _ready() -> void:
 	_connect_plugin()
 
 
+func _exit_tree() -> void:
+	# `ClassDB.instantiate()` renvoie ici un `Object` natif, pas un RefCounted :
+	# perdre la référence GDScript ne le détruit pas. Les tests le signalaient en
+	# fin de processus (IdleAds restait dans ObjectDB). Les Nodes enfants sont
+	# détruits par l'arbre et les RefCounted par leur compteur; seul un Object
+	# autonome doit recevoir `free()` explicitement.
+	var plugin := _plugin
+	_plugin = null
+	if plugin == null or not is_instance_valid(plugin):
+		return
+	if plugin is Node or plugin is RefCounted:
+		return
+	plugin.free()
+
+
 ## Branche les signaux du SDK sur nos propres états.
 ##
 ## Le plug-in ne rappelle pas l'autoload `Ads` : il émet des signaux, et c'est

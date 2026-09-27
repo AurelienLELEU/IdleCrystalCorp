@@ -60,6 +60,20 @@ func _ready() -> void:
 		_start_plugin()
 
 
+func _exit_tree() -> void:
+	# `ClassDB.instantiate()` renvoie un Object natif, pas un RefCounted : la
+	# référence GDScript seule n'en possède pas la destruction. Libérer le pont
+	# invalide aussi le pointeur statique C++ dans IdleStore::~IdleStore(), afin
+	# qu'un callback Swift tardif soit ignoré.
+	var plugin := _plugin
+	_plugin = null
+	if plugin == null or not is_instance_valid(plugin):
+		return
+	if plugin is Node or plugin is RefCounted:
+		return
+	plugin.free()
+
+
 ## Branche les signaux de StoreKit 2 sur nos propres états.
 ##
 ## Le plug-in émet des signaux et ne rappelle pas l'autoload : un appel natif
