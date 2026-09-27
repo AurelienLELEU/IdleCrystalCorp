@@ -116,7 +116,7 @@ paramètres ne le voit pas. Les différences d'écriture sont normalisées
 `UnsafePointer<CChar>?` de Swift aussi), sinon le script signalerait des
 divergences là où il n'y en a pas — et l'on apprendrait à ignorer ses alertes.
 
-Aucune dépendance : uniquement la bibliothèque standard de Python. Les 130
+Aucune dépendance : uniquement la bibliothèque standard de Python. Les 132
 vérifications courantes comprennent aussi des contrats runtime de la branche
 iOS, mutés exprès un par un pour prouver que chaque contrôle échoue.
 
