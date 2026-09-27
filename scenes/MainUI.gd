@@ -27,6 +27,17 @@ const BOOST_AD_MULTIPLIER := 10.0
 const BOOST_AD_MINUTES := 30.0
 const FREE_CRYSTALS_AD_SECONDS := 300.0
 
+## La résolution de conception passe à 1080x1920 (×1,5). L'échelle de stretch
+## compense cette densité pour le reste de l'UI; ces valeurs agrandissent
+## spécifiquement la barre haute et gardent des cibles tactiles confortables.
+const TOP_BAR_BUTTON_HEIGHT := 80.0
+const TOP_BAR_BUTTON_MIN_WIDTH := 80.0
+const TOP_BAR_BUTTON_FONT_SIZE := 26
+const TOP_BAR_VERSION_FONT_SIZE := 22
+const GAME_TITLE_FONT_SIZE := 28
+const TOP_BAR_SEPARATION := 12
+const TOP_BAR_COMPACT_WIDTH := 520.0
+
 ## Taille du compteur de combo flottant, en unités de mise en page, et écart
 ## avec la barre basse. Constantes pour que le test puisse vérifier la position
 ## sans dupliquer les valeurs.
@@ -56,6 +67,9 @@ var _nav_buttons: Dictionary = {}
 var _harvest_button: Button
 var _daily_bonus_available_state := false
 var _combo_label: Label
+var _version_label: Label
+var _store_top_button: Button
+var _settings_top_button: Button
 ## Support du compteur de combo : un `Control` transparent pleine page, enfant du
 ## `MarginContainer` de zone sûre. Voir `_build_bottom_bar()`.
 var _combo_holder: Control
@@ -94,6 +108,7 @@ func _ready() -> void:
 	_connect_signals()
 
 	_title_label.text = GameManager.config.title
+	_title_label.add_theme_font_size_override("font_size", GAME_TITLE_FONT_SIZE)
 	_resource_label.add_theme_color_override("font_color", UITheme.GOLD)
 
 	# Une page fermée laisse toute la place au compteur et au bouton de récolte.
@@ -208,25 +223,47 @@ func _refresh_page(page_name: String) -> void:
 # ----------------------------------------------------------------- barre haute
 
 func _build_top_bar() -> void:
-	var version := Label.new()
-	version.text = "v%s" % str(ProjectSettings.get_setting("application/config/version", "1.0.0"))
-	version.add_theme_color_override("font_color", UITheme.MUTED)
-	version.add_theme_font_size_override("font_size", 13)
-	version.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	version.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_top_bar.add_child(version)
+	_top_bar.add_theme_constant_override("separation", TOP_BAR_SEPARATION)
+	_version_label = Label.new()
+	_version_label.text = "v%s" % str(ProjectSettings.get_setting("application/config/version", "1.0.0"))
+	_version_label.add_theme_color_override("font_color", UITheme.MUTED)
+	_version_label.add_theme_font_size_override("font_size", TOP_BAR_VERSION_FONT_SIZE)
+	_version_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_version_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_top_bar.add_child(_version_label)
 
 	_achievements_button = _small_button("🏆 Succès", func() -> void: _switch_page(PAGE_ACHIEVEMENTS))
 	_top_bar.add_child(_achievements_button)
-	_top_bar.add_child(_small_button("💎 Boutique", func() -> void: _switch_page(PAGE_STORE)))
-	_top_bar.add_child(_small_button("⚙️", func() -> void: _switch_page(PAGE_SETTINGS)))
+	_store_top_button = _small_button("💎 Boutique", func() -> void: _switch_page(PAGE_STORE))
+	_settings_top_button = _small_button("⚙️", func() -> void: _switch_page(PAGE_SETTINGS))
+	_top_bar.add_child(_store_top_button)
+	_top_bar.add_child(_settings_top_button)
+	_top_bar.resized.connect(_adjust_top_bar)
+	_adjust_top_bar.call_deferred()
+
+
+## Les grandes tailles 1080×1920 rendent le header lisible sur les écrans
+## standards. Sur un viewport étroit, les textes deviennent des icônes pour que
+## les trois cibles tactiles restent dans la zone sûre au lieu d'élargir la
+## fenêtre ou de se faire rogner par l'encoche latérale.
+func _adjust_top_bar() -> void:
+	if _version_label == null or _achievements_button == null \
+			or _store_top_button == null or _settings_top_button == null:
+		return
+	var compact := size.x < TOP_BAR_COMPACT_WIDTH
+	_version_label.visible = not compact
+	_achievements_button.text = "🏆" if compact else "🏆 Succès"
+	_achievements_button.tooltip_text = "Succès"
+	_store_top_button.text = "💎" if compact else "💎 Boutique"
+	_store_top_button.tooltip_text = "Boutique"
+	_settings_top_button.tooltip_text = "Réglages"
 
 
 func _small_button(text: String, callback: Callable) -> Button:
 	var btn := Button.new()
 	btn.text = text
-	btn.add_theme_font_size_override("font_size", 14)
-	btn.custom_minimum_size = Vector2(0, 40)
+	btn.add_theme_font_size_override("font_size", TOP_BAR_BUTTON_FONT_SIZE)
+	btn.custom_minimum_size = Vector2(TOP_BAR_BUTTON_MIN_WIDTH, TOP_BAR_BUTTON_HEIGHT)
 	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	btn.pressed.connect(callback)
 	return btn

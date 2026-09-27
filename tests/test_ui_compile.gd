@@ -27,6 +27,14 @@ func _run() -> void:
 	await process_frame
 	await process_frame
 
+	var viewport_width := int(ProjectSettings.get_setting("display/window/size/viewport_width", 0))
+	var viewport_height := int(ProjectSettings.get_setting("display/window/size/viewport_height", 0))
+	_check(viewport_width == 1080 and viewport_height == 1920,
+		"viewport de conception mobile Full HD portrait (%d×%d)" % [viewport_width, viewport_height])
+	var stretch_scale := float(ProjectSettings.get_setting("display/window/stretch/scale", 1.0))
+	_check(is_equal_approx(stretch_scale, 1.5),
+		"le facteur de stretch compense la base Full HD (%.2f)" % stretch_scale)
+
 	# --- autoloads présents dans l'ordre prévu -----------------------------
 	for autoload_name in REQUIRED_AUTOLOADS:
 		var node: Node = root.get_node_or_null(autoload_name)
@@ -75,6 +83,8 @@ func _check_ui_built(scene: Node) -> void:
 
 	_check(top_bar != null and top_bar.get_child_count() >= 4,
 		"barre haute remplie (%d entrées)" % (0 if top_bar == null else top_bar.get_child_count()))
+	_check(top_bar != null and top_bar.get_combined_minimum_size().y >= 80.0,
+		"barre haute agrandie : cibles tactiles d'au moins 80 unités")
 	_check(bottom_bar != null and bottom_bar.get_child_count() == 5,
 		"barre basse remplie (%d entrées : 2 onglets + récolte + 2 onglets)"
 			% (0 if bottom_bar == null else bottom_bar.get_child_count()))

@@ -458,8 +458,13 @@ func _test_restore_button() -> void:
 
 	# Un achat que le Store connaît et que le jeu a oublié : c'est le scénario
 	# réel d'une réinstallation.
+	var native_plugin_before: Variant = store.get("_plugin")
 	store.set("_owned", {})
 	store.set("mock", true)
+	# Le chemin mock de restore_purchases() ne doit pas appeler le plugin. On le
+	# détache temporairement, puis on restaure impérativement sa référence : une
+	# GDExtension créée par ClassDB.instantiate() est un Object non-RefCounted;
+	# écraser définitivement ce pointeur faisait fuiter IdleStore à la sortie.
 	store.set("_plugin", null)
 	# L'ATTRIBUTION passe par le Store, pas par `GameManager.grant_store_product`
 	# : c'est `_grant()` qui remplit `Store._owned`. Appeler le jeu
@@ -484,6 +489,7 @@ func _test_restore_button() -> void:
 		"restauration : un seul toast de synthèse, pas un toast par achat (delta %d)"
 			% (_toast_count() - toasts_before))
 	store.set("_owned", {})
+	store.set("_plugin", native_plugin_before)
 
 
 func _test_hard_reset_from_ui() -> void:

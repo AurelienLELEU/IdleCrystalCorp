@@ -19,13 +19,13 @@ SUITES=(
 	"test_game|Logique de jeu, sauvegarde, hors-ligne, ascension|155"
 	"test_offline_persistence|Quitter l'app : gains, quarantaine, retour au premier plan|29"
 	"test_save_codec|Intégrité du format de sauvegarde (CRC, longueur, contrat)|57"
-	"test_ui_compile|Construction de la scène principale|19"
+	"test_ui_compile|Construction de la scène principale|22"
 	"test_ui_interaction|Interaction réelle de l'interface|95"
 	"test_background|Fond texturé animé, progression et achats|15"
 	"test_plugin_contract|Contrat entre le jeu et les extensions natives|52"
 	"test_ads_economy|Plafonds quotidiens, budget commun, fenêtre de pub|34"
 	"test_native_load|Chargement réel des extensions compilées|19"
-	"test_safe_area|Barre haute, zone sûre, combo, toasts et popup|102"
+	"test_safe_area|Barre haute, zone sûre, combo, toasts et popup|103"
 )
 
 # Le nombre de vérifications ATTENDU par suite, dans la table ci-dessus.

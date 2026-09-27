@@ -55,7 +55,7 @@ dernier.
 
 ## Tests
 
-870 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
+874 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
 
 ```bash
 ./tests/run_all.sh                       # tout
@@ -139,7 +139,7 @@ core_engine/             aucune référence à l'interface
   UITheme.gd             palette, StyleBox, helpers de mise en page
 scenes/
   Main.tscn              scène racine
-  MainUI.gd              toute l'interface, construite en code (1 275 lignes)
+  MainUI.gd              toute l'interface, construite en code (1 312 lignes)
   CrystalBackground.*    shader animé, progression liée aux achats
   ui/Toast.gd            notifications éphémères
   ui/Modal.gd            fenêtres modales
@@ -784,7 +784,7 @@ Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
 ### Le contrôle final, avant d'envoyer à Apple
 
 ```bash
-./tests/run_all.sh                 # 870 vérifications, 0 échec attendu
+./tests/run_all.sh                 # 874 vérifications, 0 échec attendu
 zsh tools/fix_info_plist.sh        # à exécuter APRÈS chaque export
 ```
 
