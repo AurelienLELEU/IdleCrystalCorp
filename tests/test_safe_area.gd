@@ -488,6 +488,13 @@ func _test_mock_ad_overlay() -> void:
 ## troisième est celle qui distingue un correctif d'un chanceux : un libellé
 ## simplement remonté à une position fixe passerait les deux premières.
 func _test_combo_label_stays_usable() -> void:
+	# Le toast quotidien de démarrage n'est pas le sujet de cette sonde. Le test
+	# crée un toast explicite après la marge simulée pour vérifier son placement
+	# avec le même `MainUI` et la même SafeArea.
+	var preloaded_game: Variant = root.get_node_or_null("GameManager")
+	if preloaded_game != null:
+		var preloaded_stats: Dictionary = preloaded_game.get("stats")
+		preloaded_stats["last_daily_claim"] = Time.get_unix_time_from_system()
 	var ui: Control = await _open_main_ui()
 	if ui == null:
 		_check(false, "compteur de combo : MainUI a pu être instancié")
@@ -499,6 +506,10 @@ func _test_combo_label_stays_usable() -> void:
 	_check(bar != null, "compteur de combo : la barre basse existe")
 	if combo == null or bar == null:
 		return
+	var root_margin := ui.get_node("Root") as MarginContainer
+	_check(root_margin.get_theme_constant("margin_top")
+			>= int(10.0 + SafeArea.MIN_TOP + SafeArea.COMFORT_TOP),
+		"MainUI applique ses marges SafeArea au conteneur racine, pas un offset fixe")
 
 	# La barre basse doit avoir exactement les cinq enfants attendus. Un
 	# `add_child` glissé dans la fonction de positionnement du libellé — ce qui
@@ -530,6 +541,8 @@ func _test_combo_label_stays_usable() -> void:
 	await process_frame
 	await process_frame
 	_assert_combo_usable(combo, bar, "sous encoche", float(NOTCH["bottom"]))
+	_assert_top_bar_usable(ui, "sous encoche", float(NOTCH["top"]))
+	await _test_toast_avoids_fixed_header(ui)
 	_check(combo.get_global_rect().position.y < before,
 		"compteur de combo : le libellé a suivi la barre vers le haut (%.0f -> %.0f)"
 			% [before, combo.get_global_rect().position.y])
@@ -547,11 +560,39 @@ func _test_combo_label_stays_usable() -> void:
 	await process_frame
 	_assert_combo_usable(combo, bar, "en paysage", 0.0,
 		float(LANDSCAPE_NOTCH["left"]))
+	_assert_top_bar_usable(ui, "en paysage", 0.0,
+		float(LANDSCAPE_NOTCH["left"]))
 	_check(combo.get_global_rect().position.x > before_x,
 		"compteur de combo : le libellé suit l'encoche en paysage (%.0f -> %.0f)"
 			% [before_x, combo.get_global_rect().position.x])
 
 	ui.queue_free()
+	await process_frame
+
+
+func _test_toast_avoids_fixed_header(ui: Control) -> void:
+	var layer := ui.get_node_or_null("ToastLayer") as CanvasLayer
+	var top := ui.get_node_or_null("Root/Layout/TopBar") as Control
+	var resources := ui.get_node_or_null("Root/Layout/ResourcePanel") as Control
+	_check(layer != null and top != null and resources != null,
+		"toast : couche, barre haute et panneau de ressources présents")
+	if layer == null or top == null or resources == null:
+		return
+	var toast := Toast.push(layer, "Notification de test", "info")
+	await process_frame
+	await process_frame
+	# L'animation est rendue en quelques centaines de millisecondes, sans compter
+	# les frames (qui tournent des milliers de fois plus vite en headless).
+	await create_timer(0.3).timeout
+	var rect := toast.get_global_rect()
+	var panel_bottom := resources.global_position.y + resources.size.y
+	_check(rect.position.y >= panel_bottom + 6.0,
+		("toast : sous le panneau de ressources, pas sur le titre "
+			+ "(toast y=%.0f, header bas=%.0f)") % [rect.position.y, panel_bottom])
+	_check(not rect.intersects(top.get_global_rect())
+			and not rect.intersects(resources.get_global_rect()),
+		"toast : ne masque ni les boutons du haut ni le compteur de ressources")
+	toast.call("_on_gone")
 	await process_frame
 
 
@@ -597,10 +638,45 @@ func _assert_combo_usable(combo: Label, bar: Control, when: String,
 	_check(c.position.x >= -EPS and c.position.x + c.size.x <= screen.x + EPS,
 		("compteur de combo %s : le libellé tient dans la largeur "
 			+ "(%.0f..%.0f dans %.0f)")
-			% [when, c.position.x, c.position.x + c.size.x, screen.x])
+		% [when, c.position.x, c.position.x + c.size.x, screen.x])
 	_check(c.position.x >= notch_left - EPS,
 		("compteur de combo %s : le libellé reste à droite de l'encoche "
 			+ "(%.0f >= %.0f)") % [when, c.position.x, notch_left])
+
+
+## Le rapport utilisateur porte surtout sur la barre haute : vérifier seulement
+## la popup et le compteur bas ne suffisait pas. On contrôle le rectangle complet
+## et chaque entrée de barre, en portrait sous l'encoche haute et en paysage avec
+## l'encoche latérale.
+func _assert_top_bar_usable(ui: Control, when: String, notch_top: float,
+		notch_left: float = 0.0) -> void:
+	var top := ui.get_node_or_null("Root/Layout/TopBar") as Control
+	var root_margin := ui.get_node_or_null("Root") as MarginContainer
+	_check(top != null and top.is_visible_in_tree() and top.size.y > 0.0,
+		"barre haute %s : le conteneur est visible et dimensionné" % when)
+	_check(root_margin != null and absf(root_margin.global_position.y) <= EPS,
+		"barre haute %s : aucune marge de notch codée en offset fixe" % when)
+	if top == null or root_margin == null:
+		return
+	var rect := top.get_global_rect()
+	_check(rect.position.y >= notch_top - EPS,
+		("barre haute %s : au-dessous de la zone haute non sûre "
+			+ "(y %.0f >= %.0f)") % [when, rect.position.y, notch_top])
+	var screen := _host.size
+	var all_children_fit := true
+	for child in top.get_children():
+		if not child is Control:
+			continue
+		var child_rect := (child as Control).get_global_rect()
+		if not (child as Control).is_visible_in_tree() \
+				or child_rect.position.y < notch_top - EPS \
+				or child_rect.position.x < notch_left - EPS \
+				or child_rect.position.x + child_rect.size.x > screen.x + EPS \
+				or child_rect.position.y + child_rect.size.y > screen.y + EPS:
+			all_children_fit = false
+	_check(all_children_fit,
+		"barre haute %s : tous ses contrôles restent dans l'écran et hors de l'encoche"
+			% when)
 
 
 ## Instancie `Main.tscn` dans un conteneur de la taille d'un téléphone, avec un

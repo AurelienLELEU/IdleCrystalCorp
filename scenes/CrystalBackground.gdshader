@@ -3,6 +3,7 @@ render_mode unshaded;
 
 uniform float purchase_progress : hint_range(0.0, 1.0) = 0.0;
 uniform float research_progress : hint_range(0.0, 1.0) = 0.0;
+uniform sampler2D grain_texture : repeat_enable, filter_linear;
 
 const vec3 DEEP = vec3(0.035, 0.025, 0.095);
 const vec3 VIOLET = vec3(0.20, 0.075, 0.34);
@@ -30,6 +31,18 @@ void fragment() {
 	vec3 glow = mix(VIOLET, CYAN, research_progress * 0.78);
 	color += glow * central_halo * (0.085 + pulse * 0.028);
 	color += CRYSTAL * lower_halo * (0.035 + pulse * 0.016);
+
+	// Texture PNG tileable de strates et veines cristallines. Elle dérive très
+	// lentement et devient plus lisible avec les achats; la recherche recolore
+	// ses veines vers le cyan. Une seule lecture de texture par pixel.
+	vec2 strata_uv = uv * vec2(2.4 + purchase_progress * 1.2,
+		3.6 + purchase_progress * 1.8) + vec2(time * 0.002, -time * 0.003);
+	float strata = texture(grain_texture, strata_uv).r;
+	float vein = 1.0 - smoothstep(0.025, 0.12, abs(strata - 0.66));
+	float texture_strength = 0.35 + purchase_progress * 0.50;
+	vec3 textured_color = color * (0.55 + strata * (0.90 + purchase_progress * 0.75))
+		+ mix(VIOLET, CYAN, research_progress * 0.85) * vein * 0.07;
+	color = mix(color, textured_color, texture_strength);
 
 	// Cinq facettes apparaissent l'une après l'autre à mesure que le joueur
 	// progresse. Leur dérive lente et leur rotation sont animées par le temps;

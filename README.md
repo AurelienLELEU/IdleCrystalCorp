@@ -55,7 +55,7 @@ dernier.
 
 ## Tests
 
-852 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
+868 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
 
 ```bash
 ./tests/run_all.sh                       # tout
@@ -71,11 +71,11 @@ python3 tests/check_native_contract.py   # le contrôle hors Godot
 | `test_save_codec.gd` | CRC32, en-tête, versions, champs obligatoires et corruption binaire |
 | `test_ui_compile.gd` | Instanciation réelle de `Main.tscn`, intégrité des 7 pages |
 | `test_ui_interaction.gd` | Navigation, récolte, achats, restauration, popups, resets et unicité des toasts |
-| `test_background.gd` | Shader animé et évolution effective selon les achats |
+| `test_background.gd` | Texture PNG réellement liée au shader, animation et progression visuelle des achats |
 | `test_plugin_contract.gd` | Contrat entre le jeu et les extensions `IdleAds` / `IdleStore`, avec un faux plug-in injecté |
 | `test_ads_economy.gd` | Plafonds quotidiens, compteur partagé, fenêtres de pubs |
 | `test_native_load.gd` | Chargement réel des GDExtensions compilées, si les bibliothèques sont présentes |
-| `test_safe_area.gd` | Zone sûre, centrage, débordement, et pièges de `set_anchors_preset` |
+| `test_safe_area.gd` | Barre haute et toasts hors notch, combo sûr portrait/paysage, modales et débordements |
 | `check_native_contract.py` | Frontières C / C++ / Objective-C++ / Swift et gardes iOS critiques |
 
 `tests/run.sh` impose un délai maximal d'exécution : si un script ne compile
@@ -139,7 +139,7 @@ core_engine/             aucune référence à l'interface
   UITheme.gd             palette, StyleBox, helpers de mise en page
 scenes/
   Main.tscn              scène racine
-  MainUI.gd              toute l'interface, construite en code (1 254 lignes)
+  MainUI.gd              toute l'interface, construite en code (1 275 lignes)
   CrystalBackground.*    shader animé, progression liée aux achats
   ui/Toast.gd            notifications éphémères
   ui/Modal.gd            fenêtres modales
@@ -149,9 +149,10 @@ native/                  code natif : absent du dépôt compilé, sources prése
   store/                 StoreKit 2        — Swift
   */build.sh             compile et n'active le manifeste qu'après un succès
 data/game_config.json    tout l'équilibrage
+assets/crystal_strata.png texture tileable de veines cristallines pour le fond
 tools/make_assets.py     génère icon.png et assets/splash.png
 tools/fix_info_plist.sh  nettoyage de l'Info.plist après export
-tests/                   5 suites Godot + le contrôle de frontière native
+tests/                   suites Godot, contrats natifs et contre-épreuves
 ```
 
 ### Séparation des responsabilités
@@ -783,7 +784,7 @@ Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
 ### Le contrôle final, avant d'envoyer à Apple
 
 ```bash
-./tests/run_all.sh                 # 852 vérifications, 0 échec attendu
+./tests/run_all.sh                 # 868 vérifications, 0 échec attendu
 zsh tools/fix_info_plist.sh        # à exécuter APRÈS chaque export
 ```
 

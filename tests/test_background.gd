@@ -49,6 +49,14 @@ func _run() -> void:
 	_check(shader_material != null, "le fond utilise un ShaderMaterial")
 	if shader_material == null or shader_material.shader == null:
 		return
+	var strata_texture := load("res://assets/crystal_strata.png") as Texture2D
+	_check(strata_texture != null and strata_texture.get_width() >= 128,
+		"texture tileable de strates cristallines chargée depuis assets")
+	var bound_texture := shader_material.get_shader_parameter("grain_texture") as Texture2D
+	_check(bound_texture != null and bound_texture.get_size() == strata_texture.get_size(),
+		"le ShaderMaterial utilise réellement la texture de strates")
+	_check(shader_material.shader.code.contains("texture(grain_texture"),
+		"le shader échantillonne la texture; le PNG n'est pas un asset mort")
 	_check(shader_material.shader.code.contains("TIME"),
 		"le shader dépend du temps : ce n'est pas une image statique")
 

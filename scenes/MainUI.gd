@@ -54,6 +54,7 @@ var _page_data: Dictionary = {}
 var _current_page: String = ""
 var _nav_buttons: Dictionary = {}
 var _harvest_button: Button
+var _daily_bonus_available_state := false
 var _combo_label: Label
 ## Support du compteur de combo : un `Control` transparent pleine page, enfant du
 ## `MarginContainer` de zone sûre. Voir `_build_bottom_bar()`.
@@ -101,10 +102,11 @@ func _ready() -> void:
 	# Le compteur de succès doit être à jour avant la première interaction.
 	_refresh_achievements()
 	_refresh_header()
+	_daily_bonus_available_state = GameManager.is_daily_bonus_available()
 
 	if GameManager.has_pending_offline():
 		_show_offline_popup()
-	elif GameManager.is_daily_bonus_available():
+	elif _daily_bonus_available_state:
 		Toast.push(_toast_layer, "🎁 Bonus quotidien disponible dans Réglages", "gold")
 
 
@@ -1152,6 +1154,7 @@ func _on_game_reset() -> void:
 	# Les gains hors-ligne sont annules par la remise a zero : toute popup
 	# encore ouverte afficherait un montant qui n'existe plus.
 	_close_all_modals()
+	_daily_bonus_available_state = GameManager.is_daily_bonus_available()
 	_refresh_header()
 	_refresh_achievements()
 	_refresh_page(_current_page)
@@ -1163,9 +1166,11 @@ func _on_daily_bonus_changed(available: bool) -> void:
 	# l'écouter, une page Réglages ouverte gardait le bouton désactivé après que
 	# les 24 h étaient écoulées; et un joueur hors de cette page n'était jamais
 	# informé du bonus devenu disponible.
+	var became_available := available and not _daily_bonus_available_state
+	_daily_bonus_available_state = available
 	if _current_page == PAGE_SETTINGS:
 		_refresh_settings()
-	if available and GameManager.is_daily_bonus_available() \
+	if became_available and GameManager.is_daily_bonus_available() \
 			and not GameManager.has_pending_offline() and not _is_modal_open():
 		Toast.push(_toast_layer, "🎁 Bonus quotidien disponible dans Réglages", "gold")
 

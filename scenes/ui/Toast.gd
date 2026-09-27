@@ -1,7 +1,7 @@
 class_name Toast
 extends PanelContainer
 
-## Message éphémère en haut de l'écran (succès débloqué, sauvegarde, achat).
+## Message éphémère sous l'en-tête fixe (succès débloqué, sauvegarde, achat).
 ## Les toasts se rangent automatiquement pour ne jamais se chevaucher.
 
 const VISIBLE_TIME := 2.6
@@ -64,10 +64,40 @@ func _ready() -> void:
 	offset_top = -40
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_rest_top = 8.0 + float(SafeArea.insets_for(get_viewport())["top"])
 	_stack.append(self)
+	# Le toast est créé depuis MainUI._ready(), avant que VBoxContainer ait
+	# dimensionné la barre haute et le panneau de ressources. Reporter la mesure à
+	# la fin de l'image évite de calculer sa place avec une hauteur nulle, et
+	# garantit qu'il ne masque pas les boutons du header, notamment sous une encoche.
+	call_deferred("_start_after_layout")
+
+
+func _start_after_layout() -> void:
+	if not is_inside_tree():
+		return
+	_rest_top = _safe_top_below_header()
 	_relayout(false)
 	_animate()
+
+
+## Le notch réserve une zone HAUTE, mais le header du jeu occupe la zone sûre
+## juste en dessous. Placer un toast seulement à `safe_top + 8` recouvrait donc
+## le titre et les boutons, qui sont eux aussi à `safe_top`. On place les toasts
+## sous le panneau de ressources, au début de la zone de jeu : ainsi ils
+## n'empêchent jamais de lire ou d'atteindre la navigation, et restent sous la
+## safe area après rotation.
+func _safe_top_below_header() -> float:
+	var top := 8.0 + float(SafeArea.insets_for(get_viewport())["top"])
+	var canvas_layer := get_parent() as CanvasLayer
+	var ui := canvas_layer.get_parent() as Control if canvas_layer != null else null
+	if ui == null:
+		return top
+	var resource_panel := ui.get_node_or_null("Root/Layout/ResourcePanel") as Control
+	if resource_panel == null or resource_panel.size.y <= 0.0:
+		return top
+	var panel_bottom := resource_panel.global_position.y + resource_panel.size.y \
+		- ui.global_position.y
+	return maxf(top, panel_bottom + 8.0)
 
 
 func _animate() -> void:

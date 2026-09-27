@@ -404,6 +404,7 @@ func _test_settings_toggles() -> void:
 	stats["last_daily_claim"] = now
 	_ui.call("_refresh_settings")
 	_check(daily.button.disabled, "réglages : le bonus est bloqué avant les 24 h")
+	_game.emit_signal("daily_bonus_changed", false)
 	stats["last_daily_claim"] = now - 86401.0
 	var toasts_before := _toast_count()
 	_game.emit_signal("daily_bonus_changed", true)
@@ -412,6 +413,10 @@ func _test_settings_toggles() -> void:
 		"réglages : daily_bonus_changed réactive le bouton sans quitter la page")
 	_check(_toast_count() - toasts_before == 1,
 		"bonus quotidien : un seul toast annonce sa disponibilité")
+	_game.emit_signal("daily_bonus_changed", true)
+	await process_frame
+	_check(_toast_count() - toasts_before == 1,
+		"bonus quotidien : un signal disponible répété ne duplique pas le toast")
 
 
 func _test_ad_failure_single_toast() -> void:

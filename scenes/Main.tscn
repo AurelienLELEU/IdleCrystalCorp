@@ -1,13 +1,15 @@
-[gd_scene load_steps=4 format=3 uid="uid://capq2y3nvisck"]
+[gd_scene load_steps=5 format=3 uid="uid://capq2y3nvisck"]
 
 [ext_resource type="Script" uid="uid://cxy76uwjrlkhe" path="res://scenes/MainUI.gd" id="1_mainui"]
-[ext_resource type="Script" path="res://scenes/CrystalBackground.gd" id="2_crystal_background"]
-[ext_resource type="Shader" path="res://scenes/CrystalBackground.gdshader" id="3_crystal_shader"]
+[ext_resource type="Script" uid="uid://dlqaas3e8ejbs" path="res://scenes/CrystalBackground.gd" id="2_crystal_background"]
+[ext_resource type="Shader" uid="uid://ijtndnnk6uui" path="res://scenes/CrystalBackground.gdshader" id="3_crystal_shader"]
+[ext_resource type="Texture2D" uid="uid://c073ptntjmqwa" path="res://assets/crystal_strata.png" id="4_crystal_strata"]
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_crystal_background"]
 shader = ExtResource("3_crystal_shader")
 shader_parameter/purchase_progress = 0.0
 shader_parameter/research_progress = 0.0
+shader_parameter/grain_texture = ExtResource("4_crystal_strata")
 
 [node name="MainUI" type="Control"]
 layout_mode = 3
