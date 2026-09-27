@@ -23,8 +23,9 @@ SUITES=(
 	"test_ui_interaction|Interaction réelle de l'interface|95"
 	"test_background|Fond texturé animé, progression et achats|15"
 	"test_plugin_contract|Contrat entre le jeu et les extensions natives|52"
+	"test_notifications|Permission, rappel local de 2 h et annulation|18"
 	"test_ads_economy|Plafonds quotidiens, budget commun, fenêtre de pub|34"
-	"test_native_load|Chargement réel des extensions compilées|19"
+	"test_native_load|Chargement réel des extensions compilées|31"
 	"test_safe_area|Barre haute, zone sûre, combo, toasts et popup|103"
 )
 

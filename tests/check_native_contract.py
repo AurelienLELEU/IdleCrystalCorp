@@ -208,6 +208,32 @@ def check_store(rep: Report) -> None:
     _check_dmethods(rep, cpp, cls_h, "IdleStore")
 
 
+def check_notifications(rep: Report) -> None:
+    """Vérifie la frontière C++/Swift du rappel local UserNotifications."""
+    header = read("native/notifications/ios/idle_notifications_ios.h")
+    swift = read("native/notifications/ios/idle_notifications_ios.swift")
+    cpp = read("native/notifications/src/idle_notifications.cpp")
+    cls_h = read("native/notifications/src/idle_notifications.h")
+    native_bridges = set(SILGEN.findall(swift))
+    cpp_called_bridges = {
+        m.group(1)
+        for m in re.finditer(
+            r'@_silgen_name\("(?P<name>idle_notifications_bridge_\w+)"\)', swift)
+    }
+    _check_both_directions(
+        rep,
+        label="IdleNotifications",
+        header=header,
+        impl=swift,
+        impl_def=SWIFT_DEF,
+        impl_name="idle_notifications_ios.swift",
+        cpp=cpp,
+        cpp_called_bridges=cpp_called_bridges,
+        native_bridges=native_bridges,
+    )
+    _check_dmethods(rep, cpp, cls_h, "IdleNotifications")
+
+
 def _check_both_directions(
     rep: Report,
     *,
@@ -240,7 +266,7 @@ def _check_both_directions(
 
     defined_in_impl = {m.group("name"): m.group("args") for m in impl_def.finditer(impl)}
     defined_in_cpp = {m.group("name"): m.group("args") for m in CXX_DEF.finditer(cpp)}
-    called_from_cpp = set(re.findall(r"\b(idle_(?:ads|store)_ios_\w+)\s*\(", cpp))
+    called_from_cpp = set(re.findall(r"\b(idle_(?:ads|store|notifications)_ios_\w+)\s*\(", cpp))
 
     # --- sens 1 : C++ -> iOS ------------------------------------------------
     for name in sorted(actions):
@@ -359,8 +385,12 @@ LIBS_ENTRY = re.compile(r'^(\S+)\s*=\s*"([^"]+)"\s*$', re.MULTILINE)
 
 
 def check_manifest(rep: Report, name: str, lib: str) -> None:
-    dist = ROOT / "native" / name / ("IdleAds.gdextension.dist" if name == "ads"
-                                     else "IdleStore.gdextension.dist")
+    manifest_names = {
+        "ads": "IdleAds.gdextension.dist",
+        "store": "IdleStore.gdextension.dist",
+        "notifications": "IdleNotifications.gdextension.dist",
+    }
+    dist = ROOT / "native" / name / manifest_names.get(name, "")
     if not dist.exists():
         rep.check(False, f"{name} : manifeste .dist présent",
                   f"{dist} introuvable")
@@ -465,7 +495,8 @@ def check_load_test_list(rep: Report) -> None:
               "constante introuvable — plus aucune classe ne serait testée")
 
     for cpp_rel, klass in (("native/ads/src/idle_ads.cpp", "IdleAds"),
-                           ("native/store/src/idle_store.cpp", "IdleStore")):
+                           ("native/store/src/idle_store.cpp", "IdleStore"),
+                           ("native/notifications/src/idle_notifications.cpp", "IdleNotifications")):
         methods, signals = _cpp_exposed(read(cpp_rel))
         rep.check(klass in declared, f"test de chargement : {klass} est déclaré",
                   "absent de const CLASSES — cette classe ne sera jamais testée")
@@ -505,6 +536,9 @@ def check_native_runtime_safety(rep: Report) -> None:
     store_restore = store_swift.split("public func idle_store_ios_restore", 1)[1].split(
         '@_cdecl("idle_store_ios_is_purchased")', 1)[0]
     ads_service = _without_comments(read("core_engine/AdService.gd"))
+    notifications_swift = _without_comments(
+        read("native/notifications/ios/idle_notifications_ios.swift"))
+    notifications_service = _without_comments(read("core_engine/NotificationService.gd"))
 
     rep.check('kAdMobSampleRewardedUnit = @"ca-app-pub-3940256099942544/1712485313"' in ads,
               "AdMob iOS : l'unité de test est le format Rewarded iOS",
@@ -582,14 +616,50 @@ def check_native_runtime_safety(rep: Report) -> None:
               and 'GameManager.notify(reason, "info")' in store_service,
               "StoreKit : un achat pending est informatif, pas un toast d'échec",
               "StoreKit peut confirmer ce paiement plus tard via Transaction.updates")
+    rep.check("UNTimeIntervalNotificationTrigger" in notifications_swift
+              and "UNNotificationRequest" in notifications_swift
+              and "UserNotifications" in notifications_swift,
+              "IdleNotifications : utilise un déclencheur local système",
+              "le rappel de 2 h doit survivre à la suspension sans serveur/APNs")
+    rep.check('"idle_reminder"' in notifications_service
+              and '"notify_after_hours": 2.0' in read("data/game_config.json"),
+              "rappel hors-ligne : identifiant stable et délai par défaut de 2 h",
+              "reprogrammer ne doit pas empiler des rappels")
+    rep.check("requestAuthorization" in notifications_swift
+              and "permission_changed" in notifications_swift
+              and '_permission != "granted"' in notifications_service,
+              "IdleNotifications : demande l'autorisation et attend le vrai résultat",
+              "un plugin présent n'implique pas que l'utilisateur a autorisé les notifications")
+    rep.check("schedule_completed" in notifications_swift
+              and "schedule_completed" in notifications_service
+              and "reminder_scheduled.emit" in notifications_service
+              and "raw_schedule_completed(raw_id, success ? 1 : 0, raw_reason)"
+                  in notifications_swift,
+              "IdleNotifications : confirme le succès asynchrone de UNUserNotificationCenter",
+              "ne pas annoncer un rappel programmé avant le callback système")
+    rep.check(notifications_swift.count("s_generation[identifier] == generation") >= 1
+              and "s_generation[identifier] = (s_generation[identifier] ?? 0) + 1" in notifications_swift,
+              "IdleNotifications : ignore un callback de programmation après annulation",
+              "un retour rapide au jeu ne doit pas laisser un rappel ancien se recréer")
+    rep.check("openSettingsURLString" in notifications_swift
+              and 'Notifications.open_settings()' in read("scenes/MainUI.gd"),
+              "IdleNotifications : un refus système ouvre Réglages iOS",
+              "iOS ne réaffiche pas le dialogue d'autorisation après un refus")
+    rep.check('notifications.cancel_all()' in _without_comments(
+                  read("core_engine/GameManager.gd"))
+              and "removeAllPendingNotificationRequests" in notifications_swift,
+              "rappel local : annule l'échéance si le joueur revient avant 2 h",
+              "sinon la notification arrive alors que le jeu est déjà ouvert")
 
 
 def main() -> int:
     rep = Report()
     check_ads(rep)
     check_store(rep)
+    check_notifications(rep)
     check_manifest(rep, "ads", "idle_ads")
     check_manifest(rep, "store", "idle_store")
+    check_manifest(rep, "notifications", "idle_notifications")
     check_load_test_list(rep)
     check_native_runtime_safety(rep)
 

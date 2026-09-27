@@ -1,0 +1,103 @@
+#!/usr/bin/env python
+"""SCons de la GDExtension IdleNotifications (UserNotifications / Swift)."""
+
+import os
+import subprocess
+
+GODOT_API_VERSION = os.environ.get("GODOT_API_VERSION", "")
+if not GODOT_API_VERSION:
+    print("GODOT_API_VERSION absent : invoquez le build via build.sh.")
+    Exit(1)
+GODOT_CPP = os.path.abspath(os.environ.get("GODOT_CPP", "../store/godot-cpp"))
+if not os.path.isfile(os.path.join(GODOT_CPP, "SConstruct")):
+    print("godot-cpp introuvable : %s" % GODOT_CPP)
+    Exit(1)
+
+env = SConscript(os.path.join(GODOT_CPP, "SConstruct"), {"api_version": GODOT_API_VERSION})
+env.Append(CPPPATH=["src/", "ios/"])
+env.Append(FRAMEWORKS=["Foundation", "UserNotifications"])
+if env["platform"] == "ios":
+    env.Append(FRAMEWORKS=["UIKit"])
+
+_platform = env["platform"]
+_is_simulator = bool(env.get("ios_simulator", False))
+_default_sdk = {
+    "ios": "iphonesimulator" if _is_simulator else "iphoneos",
+    "macos": "macosx",
+}.get(_platform, "")
+_default_swift_target = {
+    "ios": "arm64-apple-ios15.0-simulator" if _is_simulator else "arm64-apple-ios15.0",
+    "macos": "arm64-apple-macos13.0",
+}.get(_platform, "arm64-apple-ios15.0")
+
+
+def resolve_sdk(name):
+    if not name or os.path.isdir(name):
+        return name
+    try:
+        return subprocess.check_output(
+            ["xcrun", "--sdk", name, "--show-sdk-path"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return name
+
+
+def resolve_swiftc():
+    if os.environ.get("SWIFTC"):
+        return os.environ["SWIFTC"]
+    try:
+        return subprocess.check_output(["xcrun", "--find", "swiftc"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "swiftc"
+
+
+swiftc_path = resolve_swiftc()
+env.AppendUnique(
+    SWIFTC=swiftc_path,
+    SWIFT_TARGET=env.get("swift_target") or _default_swift_target,
+    SWIFT_SDK=resolve_sdk(env.get("SDKROOT") or _default_sdk),
+)
+if not env["SWIFT_SDK"]:
+    print("SDK Swift introuvable pour %s" % _platform)
+    Exit(1)
+
+base_target = env.get("swift_target") or _default_swift_target
+arch_list = [arch for arch in (env["arch"] or "").split(",") if arch] or ["arm64"]
+if env["arch"] == "universal":
+    arch_list = ["arm64", "x86_64"]
+
+swift_sources = Glob("ios/*.swift")
+if swift_sources:
+    archives = []
+    for arch in arch_list:
+        target = arch + "-" + base_target.split("-", 1)[1]
+        node = env.Command(
+            "build/swift-%s.a" % arch,
+            swift_sources,
+            '"$SWIFTC" -emit-library -static -parse-as-library '
+            '-target "%s" -sdk "$SWIFT_SDK" -O "$SOURCES" -o "$TARGET"' % target,
+        )
+        env.Depends(node[0], swift_sources)
+        archives.append(node[0])
+
+    if len(archives) == 1:
+        archive = env.Command("build/libIdleNotificationsSwift.a", archives,
+                              'cp "$SOURCE" "$TARGET"')
+    else:
+        archive = env.Command("build/libIdleNotificationsSwift.a", archives,
+                              'lipo -create $SOURCES -output "$TARGET"')
+    env.Append(LIBS=[archive[0]])
+
+    sdk_name = {"ios": "iphonesimulator" if _is_simulator else "iphoneos",
+                "macos": "macosx"}.get(_platform, "macosx")
+    toolchain_lib = os.path.join(os.path.dirname(os.path.dirname(swiftc_path)),
+                                 "lib", "swift", sdk_name)
+    if os.path.isdir(toolchain_lib):
+        env.Append(LIBPATH=[toolchain_lib])
+        env.Append(LINKFLAGS=["-L/usr/lib/swift"])
+
+library = env.SharedLibrary(
+    "bin/libidle_notifications{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+    source=Glob("src/*.cpp"),
+)
+Default(library)

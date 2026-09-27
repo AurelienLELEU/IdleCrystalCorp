@@ -144,6 +144,8 @@ func _connect_signals() -> void:
 	Store.purchase_completed.connect(_on_purchase_completed)
 	Store.purchase_failed.connect(_on_purchase_failed)
 	Store.products_loaded.connect(_on_store_products_loaded)
+	Notifications.permission_changed.connect(_on_notification_permission_changed)
+	Notifications.reminder_failed.connect(_on_notification_reminder_failed)
 	Ads.ad_completed.connect(_on_ad_completed)
 	Ads.ad_failed.connect(_on_ad_failed)
 
@@ -855,7 +857,13 @@ func _build_settings_page() -> void:
 	var notif := _make_row("notif")
 	notif.title.text = "🔔 Rappel hors-ligne"
 	notif.button.pressed.connect(func() -> void:
-		Notifications.set_enabled(not Notifications.enabled)
+		if Notifications.get_permission() == "denied":
+			Notifications.open_settings()
+		elif Notifications.get_permission() != "granted" \
+				and Notifications.get_permission() != "provisional":
+			Notifications.request_permission()
+		else:
+			Notifications.set_enabled(not Notifications.enabled)
 		_refresh_settings()
 	)
 	box.add_child(notif.root)
@@ -948,13 +956,27 @@ func _refresh_settings() -> void:
 	var notif: Row = _settings_rows.get("notif")
 	if notif != null:
 		var supported: bool = Notifications.is_supported()
-		notif.button.text = "ON" if Notifications.enabled else "OFF"
-		notif.button.disabled = not supported
-		notif.subtitle.text = ("Programmée %s après être parti." % Fmt.duration(GameManager.get_offline_cap_hours() * 3600.0)
-			if supported else
-			"Indisponible : Godot 4 n'expose pas les notifications locales, "
-			+ "un plugin natif iOS est nécessaire (voir README). "
-			+ "Le jeu vous prévient déjà à chaque retour.")
+		var permission := Notifications.get_permission()
+		notif.button.disabled = not supported or permission == "requesting"
+		if not supported:
+			notif.button.text = "—"
+			notif.subtitle.text = ("Indisponible : le rappel local demande l'extension native. "
+				+ "Le jeu vous prévient déjà à chaque retour.")
+		elif permission == "denied":
+			notif.button.text = "Réglages"
+			notif.subtitle.text = "Autorisation refusée. Touchez Réglages pour l'activer dans iOS."
+		elif permission == "requesting":
+			notif.button.text = "…"
+			notif.subtitle.text = "Demande d'autorisation en cours…"
+		elif permission != "granted" and permission != "provisional":
+			notif.button.text = "Autoriser"
+			notif.subtitle.text = "Recevoir un rappel local après %s d'absence." % Fmt.duration(
+				float(GameManager.config.offline.get("notify_after_hours", 2.0)) * 3600.0)
+		else:
+			notif.button.text = "ON" if Notifications.enabled else "OFF"
+			notif.subtitle.text = ("Rappel local après %s d'absence." % Fmt.duration(
+				float(GameManager.config.offline.get("notify_after_hours", 2.0)) * 3600.0)
+				if Notifications.enabled else "Rappel désactivé.")
 
 	var sound: Row = _settings_rows.get("sound")
 	if sound != null:
@@ -1122,6 +1144,14 @@ func _on_store_products_loaded(_count: int) -> void:
 	# étaient déjà ouverts, leurs boutons doivent aussi être réactivés.
 	_refresh_page(PAGE_STORE)
 	_refresh_settings()
+
+
+func _on_notification_permission_changed(_state: String) -> void:
+	_refresh_settings()
+
+
+func _on_notification_reminder_failed(reason: String) -> void:
+	Toast.push(_toast_layer, "Rappel non programmé : %s" % reason, "warn")
 
 
 # ========================================================================== pubs

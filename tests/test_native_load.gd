@@ -68,6 +68,12 @@ const CLASSES := {
 		"methods": ["is_configured", "start", "purchase", "restore", "is_purchased", "get_price"],
 		"signals": ["products_loaded", "purchase_completed", "purchase_failed", "purchase_restored"],
 	},
+	"IdleNotifications": {
+		"manifest": "res://native/notifications/IdleNotifications.gdextension",
+		"methods": ["is_configured", "get_permission", "refresh_permission", "request_permission",
+			"schedule", "cancel", "cancel_all", "open_settings"],
+		"signals": ["permission_changed", "schedule_completed"],
+	},
 }
 
 

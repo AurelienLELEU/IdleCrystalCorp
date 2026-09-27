@@ -128,6 +128,10 @@ func _ready() -> void:
 	_load_game()
 	_ensure_minimum_state()
 	_recalculate()
+	var notifications: Variant = _service("Notifications")
+	if notifications != null and notifications.has_signal("reminder_scheduled"):
+		if not notifications.reminder_scheduled.is_connected(_on_idle_reminder_scheduled):
+			notifications.reminder_scheduled.connect(_on_idle_reminder_scheduled)
 
 	_autosave_timer = Timer.new()
 	_autosave_timer.wait_time = config.autosave_interval
@@ -1237,6 +1241,13 @@ func _on_backgrounded() -> void:
 func _on_foregrounded() -> void:
 	if not is_loaded:
 		return
+	# Si le joueur ouvre le jeu avant le rappel, annuler la notification en
+	# attente; il ne doit pas recevoir « revenez jouer » alors qu'il joue déjà.
+	var notifications: Variant = _service("Notifications")
+	if notifications != null:
+		if notifications.has_method("refresh_permission"):
+			notifications.refresh_permission()
+		notifications.cancel_all()
 	_compute_offline_gains()
 	_recalculate()
 	daily_bonus_changed.emit(is_daily_bonus_available())
@@ -1246,14 +1257,27 @@ func _schedule_idle_notification() -> void:
 	var notifications: Variant = _service("Notifications")
 	if notifications == null:
 		return
+	if not bool(notifications.get("enabled")):
+		return
+	var permission := str(notifications.call("get_permission"))
+	if permission != "granted" and permission != "provisional":
+		# Ne pas appeler iOS depuis l'arrière-plan pour demander la permission :
+		# le dialogue ne peut venir que du geste explicite « Autoriser » dans l'UI.
+		return
 	var hours := float(config.offline.get("notify_after_hours", 2.0))
 	if hours <= 0.0:
 		return
-	stats["notifications_scheduled"] = int(stats.get("notifications_scheduled", 0)) + 1
 	notifications.schedule_idle_reminder(hours * 3600.0, {
 		"title": "%s vous attend" % config.title,
 		"body": "Vos %s continuaient de produire. Revenez les récupérer." % config.resource_name.to_lower(),
 	})
+
+
+func _on_idle_reminder_scheduled(_delay_seconds: float) -> void:
+	# Le plugin UserNotifications répond de façon asynchrone. Incrémenter au
+	# retour de `schedule_idle_reminder()` compterait une requête acceptée avant
+	# que le système ait confirmé sa création.
+	stats["notifications_scheduled"] = int(stats.get("notifications_scheduled", 0)) + 1
 
 
 func _service(node_name: String) -> Variant:

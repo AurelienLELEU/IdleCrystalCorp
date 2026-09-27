@@ -55,7 +55,7 @@ dernier.
 
 ## Tests
 
-874 vérifications, 12 contrôles, tous automatisés en headless ou par script Python :
+991 vérifications, 13 contrôles, tous automatisés en headless ou par script Python :
 
 ```bash
 ./tests/run_all.sh                       # tout
@@ -73,6 +73,7 @@ python3 tests/check_native_contract.py   # le contrôle hors Godot
 | `test_ui_interaction.gd` | Navigation, récolte, achats, restauration, popups, resets et unicité des toasts |
 | `test_background.gd` | Texture PNG réellement liée au shader, animation et progression visuelle des achats |
 | `test_plugin_contract.gd` | Contrat entre le jeu et les extensions `IdleAds` / `IdleStore`, avec un faux plug-in injecté |
+| `test_notifications.gd` | Permission asynchrone, rappel local de 2 h, échecs et annulation |
 | `test_ads_economy.gd` | Plafonds quotidiens, compteur partagé, fenêtres de pubs |
 | `test_native_load.gd` | Chargement réel des GDExtensions compilées, si les bibliothèques sont présentes |
 | `test_safe_area.gd` | Barre haute et toasts hors notch, combo sûr portrait/paysage, modales et débordements |
@@ -116,7 +117,7 @@ paramètres ne le voit pas. Les différences d'écriture sont normalisées
 `UnsafePointer<CChar>?` de Swift aussi), sinon le script signalerait des
 divergences là où il n'y en a pas — et l'on apprendrait à ignorer ses alertes.
 
-Aucune dépendance : uniquement la bibliothèque standard de Python. Les 132
+Aucune dépendance : uniquement la bibliothèque standard de Python. Les 219
 vérifications courantes comprennent aussi des contrats runtime de la branche
 iOS, mutés exprès un par un pour prouver que chaque contrôle échoue.
 
@@ -139,7 +140,7 @@ core_engine/             aucune référence à l'interface
   UITheme.gd             palette, StyleBox, helpers de mise en page
 scenes/
   Main.tscn              scène racine
-  MainUI.gd              toute l'interface, construite en code (1 312 lignes)
+  MainUI.gd              toute l'interface, construite en code (1 342 lignes)
   CrystalBackground.*    shader animé, progression liée aux achats
   ui/Toast.gd            notifications éphémères
   ui/Modal.gd            fenêtres modales
@@ -147,6 +148,7 @@ scenes/
 native/                  code natif : absent du dépôt compilé, sources présentes
   ads/                   Google AdMob      — Objective-C++
   store/                 StoreKit 2        — Swift
+  notifications/         UserNotifications — Swift, rappels locaux
   */build.sh             compile et n'active le manifeste qu'après un succès
 data/game_config.json    tout l'équilibrage
 assets/crystal_strata.png texture tileable de veines cristallines pour le fond
@@ -502,95 +504,71 @@ parle en `product_id`, le jeu en identifiants internes.
 
 ---
 
-## Notifications locales
+## Rappels locaux
 
-> **Godot 4.7 n'expose aucune API de notification locale dans son core.** C'est
-> une limite du moteur, pas du projet. Sur iOS, il faut un plug-in natif.
+Godot 4.7 ne fournit pas de notifications locales dans son core. L'extension
+`native/notifications/` utilise **UserNotifications** sur iOS/macOS; elle est
+maintenant implémentée en Swift et exposée comme GDExtension `IdleNotifications`.
+Ce sont des notifications locales planifiées sur l'appareil, **pas** du push
+APNs : pas de serveur, certificat push ni entitlement Push distant requis.
 
-`NotificationService` est la couche d'abstraction. Elle cherche une
-GDExtension `IdleNotifications` ; si elle est absente, le jeu **fonctionne
-quand même** : la popup de retour hors-ligne et le bandeau in-game font le même
-travail, et `is_supported()` vaut `false`.
+Le rappel par défaut part **2 h après le passage en arrière-plan**
+(`offline.notify_after_hours` dans `data/game_config.json`). Si le joueur revient
+avant, le rappel est annulé; le même identifiant remplace le rappel précédent,
+donc les événements pause/focus ne les empilent pas. Le compteur n'est avancé
+qu'après confirmation asynchrone du système.
 
-**Interface attendue :**
+Le choix ON/OFF est conservé dans `user://notification_settings.cfg`. Si le
+permissionnement est refusé, l'option reste visible pour rouvrir Réglages; aucune
+demande système n'est déclenchée automatiquement au lancement ou en arrière-plan.
 
-```gdscript
-request_permission() -> void   # émet permission_changed(bool)
-schedule(id: String, title: String, body: String, delay_seconds: float) -> bool
-cancel(id: String) -> void
-cancel_all() -> void
+La permission n'est demandée qu'après le geste explicite **« Autoriser »** dans
+Réglages. Un refus garde le choix utilisateur, affiche « Réglages » et permet
+d'ouvrir les réglages système. Sans l'extension compilée, la ligne reste
+indisponible et les popups/bandeaux in-game restent fonctionnels.
+
+```bash
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+# nécessite scons, Xcode complet et native/store/godot-cpp
+native/notifications/build.sh ios
+python3 tests/check_native_contract.py
+./tests/run.sh res://tests/test_native_load.gd 180
 ```
 
-Le rappel est programmé pour **2 h** après la mise en arrière-plan
-(`notify_after_hours` dans la configuration). Passé ce délai, le joueur reçoit
-« vos gains vous attendent ».
-
-**Exemple Swift pour le plug-in :**
-
-```swift
-import UserNotifications
-
-@objc(IdleNotifications)
-public class IdleNotifications: NSObject, UNUserNotificationCenterDelegate {
-
-    @objc public func request_permission() {
-        UNUserNotificationCenter.current()
-            .requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
-                NotificationCenter.default.post(
-                    name: Notification.Name("IdleNotificationsPermission"),
-                    object: nil, userInfo: ["granted": granted])
-            }
-    }
-
-    @objc public func schedule(_ id: String, title: String, body: String,
-                               delaySeconds: Double) -> Bool {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-
-        // iOS ne fusionne pas deux rappels identiques : on remplace toujours.
-        let trigger = UNTimeIntervalNotificationTrigger(
-            timeInterval: max(1.0, delaySeconds), repeats: false)
-        let request = UNNotificationRequest(identifier: id, content: content,
-                                            trigger: trigger)
-        UNUserNotificationCenter.current().add(request) { error in
-            guard error == nil else { return }
-            NotificationCenter.default.post(
-                name: Notification.Name("IdleNotificationsScheduled"),
-                object: nil, userInfo: ["delay": delaySeconds])
-        }
-        return true
-    }
-
-    @objc public func cancel(_ id: String) {
-        UNUserNotificationCenter.current()
-            .removePendingNotificationRequests(withIdentifiers: [id])
-    }
-
-    @objc public func cancel_all() {
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
-    }
-}
-```
-
-`add(_:)` est asynchrone : ne le remplacez pas par une valeur de retour
-`true` sans vérifier, sinon vous programmerez des rappels fantômes. Le code
-ci-dessus poste un notification pour prévenir le jeu du résultat réel.
+L'extension est compilée pour appareil et simulateur iOS, et macOS pour les
+tests. Aucune ligne `entitlements/push_notifications` ne doit être activée dans
+le preset pour les notifications locales. Tester sur un iPhone : iOS peut
+différer ou regrouper les rappels selon le mode Concentration, le résumé
+programmé, l'autorisation et l'état d'alimentation.
 
 ---
 
 ## Export iOS
 
 ```bash
-# 1. Renseigner l'identifiant et l'équipe dans export_presets.cfg
+# 1. Préparer les templates iOS correspondants à Godot 4.7.2 dans l'éditeur.
+# 2. Renseigner l'identifiant et l'équipe réels dans export_presets.cfg :
 #    application/bundle_identifier, application/app_store_team_id
-# 2. Exporter depuis l'éditeur, ou :
-godot --headless --path . --export-release "iOS" build/IdleCrystalCorp.ipa
+# 3. Compiler les trois GDExtensions, pour que build/ les contienne :
+NO_SDK=1 native/ads/build.sh ios # seulement simulation AdMob; SDK réel pour prod
+native/store/build.sh ios
+native/notifications/build.sh ios
+# 4. Exporter depuis l'éditeur Godot (projet iOS/Xcode), ou :
+godot --headless --path . --export-debug "iOS" build/IdleCrystalCorp.ipa
 
-# 3. Nettoyer l'Info.plist (voir plus bas)
+# 5. Nettoyer l'Info.plist (voir plus bas), puis ouvrir/signature Xcode.
 zsh tools/fix_info_plist.sh
 ```
+
+Pour installer sur un iPhone de développement, utiliser l'export **Debug**,
+une équipe Apple Developer valide, un certificat de développement et un profil
+qui contient l'UDID de l'appareil; installer l'IPA signée via Xcode Devices and
+Simulators, Apple Configurator ou `ios-deploy`. Pour une diffusion App Store,
+utiliser l'export **Release**, les identifiants App Store Connect/AdMob réels,
+valider les achats Sandbox et envoyer l'archive par Xcode Organizer ou Transporter.
+Les icônes sont générées depuis `project.godot` → `config/icon` (`icon.png`) si
+les champs optionnels d'icônes du preset restent vides; vérifier l'icône générée
+sur l'écran d'accueil après installation.
 
 ### `tools/fix_info_plist.sh`
 
@@ -755,8 +733,10 @@ Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
    déclaration des données dans App Store Connect, consentement publicitaire
    (UMP/ATT selon les régions et les usages retenus) et texte des fiches de
    boutique. Le projet ne contient pas actuellement d'intégration UMP/ATT.
-6. **Écrire `IdleNotifications`** si les notifications système réelles sont
-   voulues (§ 7). Le code actuel ne programme que des rappels internes au jeu.
+6. **Tester le rappel local sur un iPhone réel** : accepter/refuser la permission,
+   planifier 2 h, rouvrir avant l'échéance, désactiver les rappels et vérifier le
+   comportement après redémarrage. L'extension `IdleNotifications` est compilée;
+   les tests headless ne peuvent pas afficher la feuille d'autorisation iOS.
 7. **Game Center n'est pas implémenté.** Décider de l'exclure du produit ou
    ajouter l'extension, les succès/classements, les capacités Apple et les tests
    sur appareil avant de le mentionner dans la fiche.
@@ -776,6 +756,8 @@ Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
   stubs AdMob macOS, appareil iOS et simulateur iOS.
 - `native/store/build.sh macos` et `native/store/build.sh ios` : le pont C++ et
   le Swift StoreKit, pour macOS, appareil iOS et simulateur iOS.
+- `native/notifications/build.sh macos` et `native/notifications/build.sh ios` :
+  le pont C++ et Swift `UserNotifications`, pour macOS, appareil iOS et simulateur.
 - Les extensions macOS ont été chargées par Godot (`test_native_load.gd`).
 - **Non vérifié** : la branche iOS qui importe Google Mobile Ads, l'affichage
   réel d'une annonce, StoreKit contre les produits de votre compte, la signature
@@ -784,7 +766,7 @@ Ce qui reste à faire avant une mise en ligne, par ordre d'importance :
 ### Le contrôle final, avant d'envoyer à Apple
 
 ```bash
-./tests/run_all.sh                 # 874 vérifications, 0 échec attendu
+./tests/run_all.sh                 # 991 vérifications, 0 échec attendu
 zsh tools/fix_info_plist.sh        # à exécuter APRÈS chaque export
 ```
 
