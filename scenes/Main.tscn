@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3 uid="uid://capq2y3nvisck"]
+[gd_scene format=3 uid="uid://capq2y3nvisck"]
 
 [ext_resource type="Script" uid="uid://cxy76uwjrlkhe" path="res://scenes/MainUI.gd" id="1_mainui"]
 [ext_resource type="Script" uid="uid://dlqaas3e8ejbs" path="res://scenes/CrystalBackground.gd" id="2_crystal_background"]
@@ -11,7 +11,7 @@ shader_parameter/purchase_progress = 0.0
 shader_parameter/research_progress = 0.0
 shader_parameter/grain_texture = ExtResource("4_crystal_strata")
 
-[node name="MainUI" type="Control"]
+[node name="MainUI" type="Control" unique_id=81978086]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -20,7 +20,8 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_mainui")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="ColorRect" parent="." unique_id=1741339124]
+material = SubResource("ShaderMaterial_crystal_background")
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -28,11 +29,9 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(1, 1, 1, 1)
-material = SubResource("ShaderMaterial_crystal_background")
 script = ExtResource("2_crystal_background")
 
-[node name="Root" type="MarginContainer" parent="."]
+[node name="Root" type="MarginContainer" parent="." unique_id=512256607]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -44,63 +43,63 @@ theme_override_constants/margin_top = 10
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 10
 
-[node name="Layout" type="VBoxContainer" parent="Root"]
+[node name="Layout" type="VBoxContainer" parent="Root" unique_id=731654294]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="TopBar" type="HBoxContainer" parent="Root/Layout"]
+[node name="TopBar" type="HBoxContainer" parent="Root/Layout" unique_id=1174258618]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="TitleLabel" type="Label" parent="Root/Layout"]
+[node name="TitleLabel" type="Label" parent="Root/Layout" unique_id=1545916235]
 layout_mode = 2
 text = "Idle Crystal Corp"
 horizontal_alignment = 1
 
-[node name="ResourcePanel" type="PanelContainer" parent="Root/Layout"]
+[node name="ResourcePanel" type="PanelContainer" parent="Root/Layout" unique_id=1189647600]
 layout_mode = 2
 
-[node name="ResourceBox" type="VBoxContainer" parent="Root/Layout/ResourcePanel"]
+[node name="ResourceBox" type="VBoxContainer" parent="Root/Layout/ResourcePanel" unique_id=645457566]
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="ResourceLabel" type="Label" parent="Root/Layout/ResourcePanel/ResourceBox"]
+[node name="ResourceLabel" type="Label" parent="Root/Layout/ResourcePanel/ResourceBox" unique_id=1381974790]
 layout_mode = 2
+theme_override_font_sizes/font_size = 34
 text = "0"
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 34
 
-[node name="RateLabel" type="Label" parent="Root/Layout/ResourcePanel/ResourceBox"]
+[node name="RateLabel" type="Label" parent="Root/Layout/ResourcePanel/ResourceBox" unique_id=95879750]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.56078434, 0.5372549, 0.6784314, 1)
+theme_override_font_sizes/font_size = 15
 text = "0 /s"
 horizontal_alignment = 1
-theme_override_colors/font_color = Color(0.560784314, 0.537254902, 0.678431373, 1)
-theme_override_font_sizes/font_size = 15
 
-[node name="BonusBar" type="ProgressBar" parent="Root/Layout/ResourcePanel/ResourceBox"]
+[node name="BonusBar" type="ProgressBar" parent="Root/Layout/ResourcePanel/ResourceBox" unique_id=1574543799]
 visible = false
-layout_mode = 2
 custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
 show_percentage = false
 
-[node name="Pages" type="MarginContainer" parent="Root/Layout"]
+[node name="Pages" type="MarginContainer" parent="Root/Layout" unique_id=1427829456]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/margin_top = 4
 
-[node name="PageHost" type="Control" parent="Root/Layout/Pages"]
+[node name="PageHost" type="Control" parent="Root/Layout/Pages" unique_id=350189150]
 clip_contents = true
 layout_mode = 2
 
-[node name="BottomBar" type="HBoxContainer" parent="Root/Layout"]
-layout_mode = 2
+[node name="BottomBar" type="HBoxContainer" parent="Root/Layout" unique_id=526948781]
 custom_minimum_size = Vector2(0, 66)
+layout_mode = 2
 theme_override_constants/separation = 5
 
-[node name="ToastLayer" type="CanvasLayer" parent="."]
+[node name="ToastLayer" type="CanvasLayer" parent="." unique_id=1340898257]
 layer = 50
 
-[node name="FloatingLayer" type="Control" parent="."]
+[node name="FloatingLayer" type="Control" parent="." unique_id=1460990712]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -109,5 +108,5 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="OverlayLayer" type="CanvasLayer" parent="."]
+[node name="OverlayLayer" type="CanvasLayer" parent="." unique_id=1850562050]
 layer = 100
