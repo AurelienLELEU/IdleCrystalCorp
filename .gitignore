@@ -1,65 +1,9 @@
-# Godot
-.godot/
-# Dossiers d'export mobiles générés par l'éditeur
-/android/
-/ios/
-/macos/
-/windows/
-# Dossiers de construction que j'ajoute explicitement
-/build/
-/export/
-/exported/
-
-# Projets exportés
-*.ipa
+.DS_Store
+**/.godot/
+**/.toolchain/
+**/artifacts/
+**/build/
 *.apk
 *.aab
-*.aar
-*.zip
-*.pck
-*.xcodeproj
-*.xcworkspace
-*.xcuserdatad
-*.xcuserstate
-
-# Sauvegardes de dépendances
-export_credentials.cfg
-
-# Extensions natives : les binaires sont des artefacts, liés à la version du
-# SDK AdMob, de l'API Godot et de celle d'iOS. Les SOURCES sont versionnées.
-native/*/bin/
-native/*/godot-cpp/
-*.gdextension
-*.gdextension.uid
-
-# Résidus de construction SCons. Les .os portent des chemins absolus de cette
-# machine et ne se relient pas ailleurs ; les journaux idem, et ils contiennent
-# les commandes complètes, donc les chemins du SDK.
-# `native/**/` et non `native/*/`: les objets atterrissent dans les
-# sous-dossiers src/ et ios/, un cran plus bas que le répertoire de l'extension.
-native/**/build/
-native/**/.sconsign.dblite
-native/**/.sconsign.py
-native/**/*.os
-native/**/build-*.log
-native/**/*.dSYM/
-
-# Certificats et signatures : ne doivent JAMAIS être versionnés
-*.p12
-*.mobileprovision
 *.keystore
 *.jks
-*.cer
-*.certSigningRequest
-*.p8
-
-# Systèmes et éditeurs
-.DS_Store
-Thumbs.db
-desktop.ini
-*~
-*.swp
-*.swo
-.idea/
-.vscode/
-*.tmp
