@@ -552,6 +552,32 @@ func _test_responsive_layout() -> void:
 		"mise en page : le compteur est sous la barre haute")
 	_check(bottom_bar.position.y >= resource_panel.position.y + resource_panel.size.y - 1.0,
 		"mise en page : la barre basse est sous le compteur")
+	if "--capture-ui" in OS.get_cmdline_user_args():
+		for transient in _ui.get_node("ToastLayer").get_children():
+			transient.queue_free()
+		for transient in _ui.get_node("FloatingLayer").get_children():
+			transient.queue_free()
+		var directory := ProjectSettings.globalize_path("user://ui-previews")
+		DirAccess.make_dir_recursive_absolute(directory)
+		for dimensions in [Vector2i(360, 800), Vector2i(412, 915), Vector2i(768, 1024)]:
+			root.size = dimensions
+			_ui.call("_switch_page", "")
+			_ui.call("_switch_page", "buildings")
+			await process_frame
+			await process_frame
+			await RenderingServer.frame_post_draw
+			_check(bottom_bar.size.x <= _ui.size.x + 1.0, "capture : navigation contenue %s" % dimensions)
+			_check(top_bar.size.x <= _ui.size.x + 1.0, "capture : outils contenus %s" % dimensions)
+			var image := root.get_texture().get_image()
+			_check(not image.is_empty(), "capture : image non vide %s" % dimensions)
+			var colors := {}
+			for image_row in range(0, image.get_height(), maxi(1, int(image.get_height() / 16.0))):
+				for image_column in range(0, image.get_width(), maxi(1, int(image.get_width() / 16.0))):
+					colors[image.get_pixel(image_column, image_row).to_html()] = true
+			_check(colors.size() > 12, "capture : contenu rendu %s (%d couleurs)" % [dimensions, colors.size()])
+			var destination := "%s/idle-%dx%d.png" % [directory, dimensions.x, dimensions.y]
+			_check(image.save_png(destination) == OK, "capture : PNG enregistre")
+			print("UI_CAPTURE: %s" % destination)
 
 
 # ======================================================================== outils

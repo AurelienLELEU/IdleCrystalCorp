@@ -30,13 +30,15 @@ const FREE_CRYSTALS_AD_SECONDS := 300.0
 ## La résolution de conception passe à 1080x1920 (×1,5). L'échelle de stretch
 ## compense cette densité pour le reste de l'UI; ces valeurs agrandissent
 ## spécifiquement la barre haute et gardent des cibles tactiles confortables.
-const TOP_BAR_BUTTON_HEIGHT := 80.0
-const TOP_BAR_BUTTON_MIN_WIDTH := 80.0
-const TOP_BAR_BUTTON_FONT_SIZE := 26
+const TOP_BAR_BUTTON_HEIGHT := 96.0
+const TOP_BAR_BUTTON_MIN_WIDTH := 96.0
+const TOP_BAR_BUTTON_FONT_SIZE := 28
 const TOP_BAR_VERSION_FONT_SIZE := 22
-const GAME_TITLE_FONT_SIZE := 28
+const GAME_TITLE_FONT_SIZE := 34
 const TOP_BAR_SEPARATION := 12
 const TOP_BAR_COMPACT_WIDTH := 520.0
+const TOP_BAR_SHORT_BUTTON_HEIGHT := 56.0
+const SHORT_VIEWPORT_HEIGHT := 520.0
 
 ## Taille du compteur de combo flottant, en unités de mise en page, et écart
 ## avec la barre basse. Constantes pour que le test puisse vérifier la position
@@ -46,7 +48,7 @@ const COMBO_LABEL_GAP := 4.0
 
 ## Hauteur minimale de la barre basse. Partagée par les boutons de navigation,
 ## le bouton de récolte et le positionnement du compteur de combo.
-const BOTTOM_BAR_HEIGHT := 66.0
+const BOTTOM_BAR_HEIGHT := 96.0
 
 @onready var _root_margin: MarginContainer = $Root
 @onready var _title_label: Label = $Root/Layout/TitleLabel
@@ -110,6 +112,9 @@ func _ready() -> void:
 	_title_label.text = GameManager.config.title
 	_title_label.add_theme_font_size_override("font_size", GAME_TITLE_FONT_SIZE)
 	_resource_label.add_theme_color_override("font_color", UITheme.GOLD)
+	_resource_label.add_theme_font_size_override("font_size", 48)
+	_rate_label.add_theme_font_size_override("font_size", 24)
+	_rate_label.add_theme_color_override("font_color", UITheme.MUTED)
 
 	# Une page fermée laisse toute la place au compteur et au bouton de récolte.
 	_switch_page("")
@@ -253,6 +258,9 @@ func _adjust_top_bar() -> void:
 			or _store_top_button == null or _settings_top_button == null:
 		return
 	var compact := size.x < TOP_BAR_COMPACT_WIDTH
+	var button_height := TOP_BAR_SHORT_BUTTON_HEIGHT if size.y < SHORT_VIEWPORT_HEIGHT else TOP_BAR_BUTTON_HEIGHT
+	for button in [_achievements_button, _store_top_button, _settings_top_button]:
+		button.custom_minimum_size = Vector2(TOP_BAR_BUTTON_MIN_WIDTH, button_height)
 	_version_label.visible = not compact
 	_achievements_button.text = "🏆" if compact else "🏆 Succès"
 	_achievements_button.tooltip_text = "Succès"
@@ -284,7 +292,10 @@ func _build_bottom_bar() -> void:
 	_harvest_button = Button.new()
 	_harvest_button.text = "⛏️ RÉCOLTER"
 	_harvest_button.custom_minimum_size = Vector2(0, BOTTOM_BAR_HEIGHT)
-	_harvest_button.add_theme_font_size_override("font_size", 16)
+	_harvest_button.add_theme_font_size_override("font_size", 26)
+	_harvest_button.add_theme_color_override("font_color", UITheme.BG_DEEP)
+	_harvest_button.add_theme_color_override("font_hover_color", UITheme.BG_DEEP)
+	_harvest_button.add_theme_color_override("font_pressed_color", UITheme.TEXT)
 	_harvest_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_harvest_button.size_flags_stretch_ratio = 1.5
 	_harvest_button.add_theme_stylebox_override("normal", UITheme.box(UITheme.GOLD.darkened(0.15), 14, 10))
@@ -325,8 +336,9 @@ func _build_combo_label() -> void:
 
 func _nav_button(text: String, page_name: String) -> Button:
 	var btn := Button.new()
-	btn.text = text
-	btn.add_theme_font_size_override("font_size", 13)
+	btn.text = text.get_slice(" ", 0)
+	btn.tooltip_text = text
+	btn.add_theme_font_size_override("font_size", 36)
 	btn.custom_minimum_size = Vector2(0, BOTTOM_BAR_HEIGHT)
 	btn.clip_text = true
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1287,21 +1299,21 @@ func _make_row(id: String) -> Row:
 	line.add_child(texts)
 
 	row.title = Label.new()
-	row.title.add_theme_font_size_override("font_size", 17)
+	row.title.add_theme_font_size_override("font_size", 30)
 	row.title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	texts.add_child(row.title)
 
 	row.subtitle = Label.new()
-	row.subtitle.add_theme_font_size_override("font_size", 14)
+	row.subtitle.add_theme_font_size_override("font_size", 24)
 	row.subtitle.add_theme_color_override("font_color", UITheme.MUTED)
 	row.subtitle.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	texts.add_child(row.subtitle)
 
 	row.button = Button.new()
-	row.button.custom_minimum_size = Vector2(112, 48)
+	row.button.custom_minimum_size = Vector2(128, 96)
 	row.button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.button.clip_text = true
-	row.button.add_theme_font_size_override("font_size", 15)
+	row.button.add_theme_font_size_override("font_size", 26)
 	line.add_child(row.button)
 
 	return row
@@ -1311,10 +1323,10 @@ func _make_row(id: String) -> Row:
 ## les titres qui se wraps, sont gérés par l'autowrap du label.
 func _add_row_extra_button(row: Row) -> Button:
 	var btn := Button.new()
-	btn.custom_minimum_size = Vector2(112, 48)
+	btn.custom_minimum_size = Vector2(128, 96)
 	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	btn.clip_text = true
-	btn.add_theme_font_size_override("font_size", 15)
+	btn.add_theme_font_size_override("font_size", 26)
 	row.button.get_parent().add_child(btn)
 	row.extra_button = btn
 	return btn
@@ -1325,14 +1337,14 @@ func _section_header(title: String, subtitle: String) -> VBoxContainer:
 	box.add_theme_constant_override("separation", 2)
 	var heading := Label.new()
 	heading.text = title
-	heading.add_theme_font_size_override("font_size", 21)
+	heading.add_theme_font_size_override("font_size", 32)
 	heading.add_theme_color_override("font_color", UITheme.GOLD)
 	box.add_child(heading)
 	if not subtitle.is_empty():
 		var sub := Label.new()
 		sub.text = subtitle
 		sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		sub.add_theme_font_size_override("font_size", 14)
+		sub.add_theme_font_size_override("font_size", 24)
 		sub.add_theme_color_override("font_color", UITheme.MUTED)
 		box.add_child(sub)
 	return box

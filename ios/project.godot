@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Idle Crystal Corp"
 config/description="Modèle de jeu idle pour mobile : production automatique, ascension, gains hors-ligne, succès. 100 % jouable gratuitement."
-config/version="1.0.0"
+config/version="1.0.1"
 run/main_scene="uid://capq2y3nvisck"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 boot_splash/bg_color=Color(0.027, 0.024, 0.059, 1)
